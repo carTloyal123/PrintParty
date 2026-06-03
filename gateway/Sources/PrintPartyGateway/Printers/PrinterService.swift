@@ -348,12 +348,16 @@ actor PrinterService {
     }
 
     /// Send a state to one WS client as a MessageEnvelope event.
+    /// Must dispatch through the WebSocket's event loop to avoid
+    /// NIOLoopBound precondition failures.
     private func sendStateEnvelope(to ws: WebSocket, state: PrintJobState) {
         if let payloadData = try? JSONEncoder().encode(state) {
             let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
             if let envData = try? JSONEncoder().encode(envelope),
                let envJson = String(data: envData, encoding: .utf8) {
-                ws.send(envJson)
+                ws.eventLoop.execute {
+                    ws.send(envJson)
+                }
             }
         }
     }
