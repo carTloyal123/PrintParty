@@ -10,11 +10,16 @@ COPY Tests/ Tests/
 RUN swift package resolve
 
 # Build release binary with static Swift stdlib.
-# -march=x86-64: target baseline x86-64 ISA to avoid SIGILL on older CPUs
-# (e.g. Ivy Bridge) that lack AVX2/BMI2.
-RUN swift build -c release --static-swift-stdlib \
-    -Xcc -march=x86-64 \
-    -Xlinker -lstdc++
+# On x86-64, use -march=x86-64 to target baseline ISA and avoid SIGILL
+# on older CPUs (e.g. Ivy Bridge) that lack AVX2/BMI2.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      swift build -c release --static-swift-stdlib \
+        -Xcc -march=x86-64 -Xlinker -lstdc++ ; \
+    else \
+      swift build -c release --static-swift-stdlib \
+        -Xlinker -lstdc++ ; \
+    fi
 
 # ── Runtime stage (~30MB slim + libcurl for URLSession on Linux) ──
 FROM ubuntu:22.04
