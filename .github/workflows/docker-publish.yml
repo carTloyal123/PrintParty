@@ -14,16 +14,25 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  build-gateway:
-    runs-on: ubuntu-latest
+  # ── Build each service × platform natively ─────────────────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, relay]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -36,29 +45,51 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-gateway
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
 
+      # Build and push a single-platform image by digest (no tag yet).
       - uses: docker/build-push-action@v6
+        id: build
         with:
-          context: ./gateway
-          platforms: linux/amd64,linux/arm64
+          context: ./${{ matrix.service }}
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,push-by-digest=true,name-resolution-mode=tag,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
 
-  build-relay:
+      # Export the digest so the merge job can reference it.
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests/${{ matrix.service }}
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${{ matrix.service }}/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.service }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: ${{ runner.temp }}/digests/${{ matrix.service }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Merge per-platform images into a multi-arch manifest ───────
+  merge:
+    needs: build
+    strategy:
+      matrix:
+        service: [gateway, relay]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.service }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
 
       - uses: docker/setup-buildx-action@v3
 
@@ -71,15 +102,14 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-relay
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: ./relay
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}@sha256:%s ' *)
