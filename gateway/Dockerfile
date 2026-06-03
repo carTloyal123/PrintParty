@@ -9,12 +9,13 @@ COPY Tests/ Tests/
 # Resolve dependencies first (cacheable layer)
 RUN swift package resolve
 
-# Build release binary with static Swift stdlib
-RUN swift build -c release --static-swift-stdlib \
+# Build DEBUG binary to get readable crash messages instead of SIGILL.
+# Release mode uses ud2 for assertions/preconditions which shows as SIGILL.
+RUN swift build -c debug \
     -Xlinker -lstdc++
 
-# ── Runtime stage (~30MB slim + libcurl for URLSession on Linux) ──
-FROM ubuntu:22.04
+# ── Runtime stage — use Swift image for debug runtime support ─────
+FROM swift:6.3.2-jammy
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 ca-certificates \
@@ -25,9 +26,7 @@ RUN useradd --create-home printparty \
     && chown printparty:printparty /data
 USER printparty
 
-COPY --from=build /build/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
-# Copy swift-backtrace from the build image for crash diagnostics
-COPY --from=build /usr/libexec/swift/linux/swift-backtrace /usr/libexec/swift/linux/swift-backtrace
+COPY --from=build /build/.build/debug/printparty-gateway /usr/local/bin/printparty-gateway
 
 ENV PRINTPARTY_DATA_DIR=/data
 ENV SWIFT_BACKTRACE=enable=yes,demangle=yes
