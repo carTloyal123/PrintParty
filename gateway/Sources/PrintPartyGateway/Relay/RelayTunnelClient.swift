@@ -90,8 +90,12 @@ actor RelayTunnelClient {
         isRunning = false
         reconnectTask?.cancel()
         reconnectTask = nil
-        if let ws, !ws.isClosed {
-            _ = ws.close()
+        if let ws {
+            ws.eventLoop.execute {
+                if !ws.isClosed {
+                    _ = ws.close()
+                }
+            }
         }
         ws = nil
         logger.info("[Tunnel] Relay tunnel client stopped")
@@ -100,8 +104,11 @@ actor RelayTunnelClient {
     // MARK: - Send
 
     func send(text: String) {
-        guard let ws, !ws.isClosed else { return }
-        ws.send(text)
+        guard let ws else { return }
+        ws.eventLoop.execute {
+            guard !ws.isClosed else { return }
+            ws.send(text)
+        }
     }
 
     // MARK: - Registration
@@ -225,10 +232,16 @@ actor RelayTunnelClient {
 
         let future = WebSocket.connect(to: wsURLString, on: eventLoopGroup) { [weak self, logger] ws in
             logger.info("[Tunnel] Connected to relay tunnel")
-            self?.ws = ws
             Task { [weak self] in
+                await self?.setWs(ws)
                 await self?.resetReconnectCounter()
-                await self?.setupOnTextHandler(ws: ws)
+            }
+
+            // Register onText directly in the NIO callback (not via actor)
+            // to avoid NIOLoopBound precondition failures.
+            ws.onText { [weak self] ws, text in
+                guard let self else { return }
+                Task { await self.handleIncomingTunnelFrame(text: text) }
             }
 
             ws.onClose.whenComplete { [weak self] _ in
@@ -249,6 +262,10 @@ actor RelayTunnelClient {
             logger.warning("[Tunnel] Connection failed: \(error)")
             Task { [weak self] in await self?.handleDisconnect() }
         }
+    }
+
+    private func setWs(_ newWs: WebSocket) {
+        self.ws = newWs
     }
 
     private func resetReconnectCounter() {
@@ -277,15 +294,6 @@ actor RelayTunnelClient {
     }
 
     // MARK: - Incoming request handling
-
-    /// Register `ws.onText` on the tunnel WebSocket to receive client requests
-    /// forwarded by the relay. Incoming format: `<clientId>:<nonce>.<ciphertext>`
-    private func setupOnTextHandler(ws: WebSocket) {
-        ws.onText { [weak self] ws, text in
-            guard let self else { return }
-            Task { await self.handleIncomingTunnelFrame(text: text) }
-        }
-    }
 
     /// Process an incoming frame from the relay tunnel.
     /// Format: `<clientId>:<nonce>.<ciphertext>` — relay prepended the client UUID.
