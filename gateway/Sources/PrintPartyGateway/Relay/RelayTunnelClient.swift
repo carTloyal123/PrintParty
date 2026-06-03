@@ -12,6 +12,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Vapor
 import Crypto
 import NIOCore
@@ -148,7 +151,7 @@ actor RelayTunnelClient {
         // Persist to disk.
         let dir = (apiKeyPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        try key.write(toFile: apiKeyPath, atomically: true, encoding: .utf8)
+        try key.write(toFile: apiKeyPath, atomically: true, encoding: String.Encoding.utf8)
         try? FileManager.default.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: apiKeyPath

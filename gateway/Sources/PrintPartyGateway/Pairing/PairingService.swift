@@ -239,7 +239,7 @@ actor PairingService {
 
     private static func generateCode() -> String {
         // 5 random bytes = 40 bits = exactly 8 base32 characters.
-        let key = SymmetricKey(size: .bits64) // smallest size; we only use 5 bytes
+        let key = SymmetricKey(size: .bits128) // smallest standard size; we only use 5 bytes
         let bytes: [UInt8] = key.withUnsafeBytes { Array($0.prefix(5)) }
         return Base32.encode(bytes)
     }

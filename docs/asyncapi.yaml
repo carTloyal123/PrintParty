@@ -1,0 +1,1508 @@
+# ──────────────────────────────────────────────────────────────────────
+# PrintParty WebSocket Messaging Protocol — AsyncAPI 3.0 Specification
+# ──────────────────────────────────────────────────────────────────────
+#
+# HOW TO READ THIS SPEC
+#
+# PrintParty uses a single MessageEnvelope JSON format for all
+# WebSocket communication. There are two transport channels:
+#
+#   1. LAN direct  — ws://gateway/v1/stream?protocol=envelope
+#      Frames are plaintext JSON MessageEnvelope objects.
+#
+#   2. Relay tunnel — wss://relay/v1/tunnel/{gatewayId}/stream
+#      Frames are encrypted: <routing-tag>:<base64-nonce>.<base64-ciphertext>
+#      The ciphertext decrypts to a JSON MessageEnvelope.
+#
+# The "payload" field inside every MessageEnvelope is itself a
+# base64-encoded JSON string of the method-specific data. This avoids
+# type erasure in Swift's Codable system.
+#
+# Methods are grouped into:
+#   - Events:   gateway → client (broadcast), no id, type="event"
+#   - Requests: client → gateway, type="request", id=<uuid>
+#   - Responses: gateway → client, type="response", echoes id
+#   - Errors:   gateway → client, type="error", echoes id
+#
+# Channels below describe what each side sends/receives. Operations
+# describe the actions taken when a message is sent or received.
+# ──────────────────────────────────────────────────────────────────────
+
+asyncapi: 3.0.0
+
+info:
+  title: PrintParty WebSocket Protocol
+  version: 0.1.0
+  description: |
+    Real-time bidirectional protocol for monitoring and controlling 3D printers
+    through a local gateway. Supports both direct LAN connections (plaintext)
+    and relay-tunneled connections (end-to-end encrypted with AES-256-GCM).
+
+    ## Wire Formats
+
+    ### LAN (direct WebSocket)
+    Raw JSON `MessageEnvelope` objects on `ws://gateway/v1/stream?protocol=envelope`.
+
+    ```json
+    {"type":"event","id":null,"method":"stream.state","deviceId":null,"payload":"eyJwcmludG..."}
+    ```
+
+    ### Relay (encrypted tunnel)
+    Frames on `wss://relay/v1/tunnel/{gatewayId}/stream` use the format:
+
+    ```
+    <routing-tag>:<base64-nonce>.<base64-ciphertext>
+    ```
+
+    - **Routing tags:** `*` = broadcast to all clients, `<uuid>` = peer-to-peer to one client
+    - The relay strips/prepends the routing tag; clients only see `<nonce>.<ciphertext>`
+    - Ciphertext decrypts (AES-256-GCM) to a JSON `MessageEnvelope`
+
+    ### Payload encoding
+    The `payload` field in every `MessageEnvelope` is a **base64-encoded JSON string**
+    of the method-specific data (not nested JSON — actual base64).
+
+  contact:
+    name: PrintParty
+  license:
+    name: Proprietary
+
+servers:
+  lanGateway:
+    host: '{gatewayHost}:8080'
+    protocol: ws
+    description: |
+      Direct LAN connection to the gateway. No encryption — plaintext JSON envelopes.
+      Discovered via Bonjour/mDNS or manual IP entry.
+    variables:
+      gatewayHost:
+        description: LAN IP or hostname of the gateway (e.g. 192.168.1.42)
+
+  relayTunnel:
+    host: '{relayHost}'
+    protocol: wss
+    description: |
+      Relay-tunneled connection. All frames are end-to-end encrypted with AES-256-GCM.
+      The relay is a zero-knowledge frame router — it never sees plaintext.
+    variables:
+      relayHost:
+        description: Relay server hostname (e.g. relay.printparty.app)
+    security:
+      - $ref: '#/components/securitySchemes/relayApiKey'
+
+defaultContentType: application/json
+
+channels:
+  lanStream:
+    address: /v1/stream
+    title: LAN Direct Stream
+    description: |
+      Direct WebSocket connection to the gateway on the local network.
+      Connect with `?protocol=envelope` query parameter for the envelope protocol.
+      Without the parameter, the gateway falls back to legacy raw `PrintJobState` streaming.
+
+      Frames are plaintext JSON `MessageEnvelope` objects in both directions.
+    servers:
+      - $ref: '#/servers/lanGateway'
+    messages:
+      streamStateEvent:
+        $ref: '#/components/messages/streamStateEvent'
+      keyRotateEvent:
+        $ref: '#/components/messages/keyRotateEvent'
+      healthRequest:
+        $ref: '#/components/messages/healthRequest'
+      healthResponse:
+        $ref: '#/components/messages/healthResponse'
+      printersListRequest:
+        $ref: '#/components/messages/printersListRequest'
+      printersListResponse:
+        $ref: '#/components/messages/printersListResponse'
+      printersStateRequest:
+        $ref: '#/components/messages/printersStateRequest'
+      printersStateResponse:
+        $ref: '#/components/messages/printersStateResponse'
+      printersRegisterRequest:
+        $ref: '#/components/messages/printersRegisterRequest'
+      printersRegisterResponse:
+        $ref: '#/components/messages/printersRegisterResponse'
+      printersRemoveRequest:
+        $ref: '#/components/messages/printersRemoveRequest'
+      printersRemoveResponse:
+        $ref: '#/components/messages/printersRemoveResponse'
+      activitiesRegisterRequest:
+        $ref: '#/components/messages/activitiesRegisterRequest'
+      activitiesRegisterResponse:
+        $ref: '#/components/messages/activitiesRegisterResponse'
+      printerCommandRequest:
+        $ref: '#/components/messages/printerCommandRequest'
+      printerCommandResponse:
+        $ref: '#/components/messages/printerCommandResponse'
+      errorEnvelope:
+        $ref: '#/components/messages/errorEnvelope'
+
+  relayStream:
+    address: /v1/tunnel/{gatewayId}/stream
+    title: Relay Tunnel Stream
+    description: |
+      Encrypted WebSocket tunnel through the relay server. The gateway connects
+      as a single upstream; iOS clients connect as downstream peers.
+
+      **Gateway → Relay frames:** `<routing-tag>:<base64-nonce>.<base64-ciphertext>`
+      - `*:<nonce>.<ciphertext>` — broadcast event to all clients
+      - `<clientId>:<nonce>.<ciphertext>` — response to a specific client
+
+      **Client → Relay frames:** `<base64-nonce>.<base64-ciphertext>`
+      - The relay prepends the client's UUID before forwarding upstream
+
+      **Client receives:** `<base64-nonce>.<base64-ciphertext>` (tag already stripped)
+
+      After decryption, the inner content is a JSON `MessageEnvelope` — identical
+      to the LAN plaintext format.
+    parameters:
+      gatewayId:
+        description: Unique identifier of the target gateway (assigned during registration).
+    servers:
+      - $ref: '#/servers/relayTunnel'
+    messages:
+      streamStateEvent:
+        $ref: '#/components/messages/streamStateEvent'
+      keyRotateEvent:
+        $ref: '#/components/messages/keyRotateEvent'
+      healthRequest:
+        $ref: '#/components/messages/healthRequest'
+      healthResponse:
+        $ref: '#/components/messages/healthResponse'
+      printersListRequest:
+        $ref: '#/components/messages/printersListRequest'
+      printersListResponse:
+        $ref: '#/components/messages/printersListResponse'
+      printersStateRequest:
+        $ref: '#/components/messages/printersStateRequest'
+      printersStateResponse:
+        $ref: '#/components/messages/printersStateResponse'
+      printersRegisterRequest:
+        $ref: '#/components/messages/printersRegisterRequest'
+      printersRegisterResponse:
+        $ref: '#/components/messages/printersRegisterResponse'
+      printersRemoveRequest:
+        $ref: '#/components/messages/printersRemoveRequest'
+      printersRemoveResponse:
+        $ref: '#/components/messages/printersRemoveResponse'
+      activitiesRegisterRequest:
+        $ref: '#/components/messages/activitiesRegisterRequest'
+      activitiesRegisterResponse:
+        $ref: '#/components/messages/activitiesRegisterResponse'
+      printerCommandRequest:
+        $ref: '#/components/messages/printerCommandRequest'
+      printerCommandResponse:
+        $ref: '#/components/messages/printerCommandResponse'
+      errorEnvelope:
+        $ref: '#/components/messages/errorEnvelope'
+
+operations:
+
+  # ── Events (gateway → client) ──────────────────────────────────────
+
+  sendStreamState:
+    action: send
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Broadcast printer state
+    summary: Gateway pushes real-time printer state updates to all connected clients.
+    description: |
+      Sent whenever a printer's state changes (temperature, progress, stage transition, etc.).
+      On the relay channel, encrypted with the **group key** and tagged `*` for broadcast.
+    messages:
+      - $ref: '#/components/messages/streamStateEvent'
+
+  sendKeyRotate:
+    action: send
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Rotate group key
+    summary: Gateway distributes a new group key to a specific paired device.
+    description: |
+      Sent per-device (not broadcast) when the group key is rotated — typically after
+      a device is unpaired. The new group key is encrypted with the recipient's
+      device shared key. On the relay channel, tagged with the specific client UUID.
+    messages:
+      - $ref: '#/components/messages/keyRotateEvent'
+
+  # ── Request/Response (client ↔ gateway) ────────────────────────────
+
+  requestHealth:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Health check request
+    summary: Client requests gateway health and identity information.
+    messages:
+      - $ref: '#/components/messages/healthRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/healthResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestPrintersList:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: List printers request
+    summary: Client requests a list of all registered printers and their current state.
+    messages:
+      - $ref: '#/components/messages/printersListRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/printersListResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestPrintersState:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Get printer state request
+    summary: Client requests the full state of a specific printer.
+    messages:
+      - $ref: '#/components/messages/printersStateRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/printersStateResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestPrintersRegister:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Register printer request
+    summary: Client registers a new Bambu Lab printer with the gateway.
+    messages:
+      - $ref: '#/components/messages/printersRegisterRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/printersRegisterResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestPrintersRemove:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Remove printer request
+    summary: Client unregisters a printer from the gateway.
+    messages:
+      - $ref: '#/components/messages/printersRemoveRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/printersRemoveResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestActivitiesRegister:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Register Live Activity request
+    summary: Client registers an APNs push token for Live Activity updates.
+    messages:
+      - $ref: '#/components/messages/activitiesRegisterRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/activitiesRegisterResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+  requestPrinterCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/lanStream'
+    title: Send printer command
+    summary: Client sends a control command (pause, resume, cancel) to a printer.
+    messages:
+      - $ref: '#/components/messages/printerCommandRequest'
+    reply:
+      channel:
+        $ref: '#/channels/lanStream'
+      messages:
+        - $ref: '#/components/messages/printerCommandResponse'
+        - $ref: '#/components/messages/errorEnvelope'
+
+components:
+
+  # ════════════════════════════════════════════════════════════════════
+  #  MESSAGES
+  # ════════════════════════════════════════════════════════════════════
+
+  messages:
+
+    # ── stream.state event ───────────────────────────────────────────
+
+    streamStateEvent:
+      name: stream.state
+      title: Printer State Event
+      summary: Real-time printer state broadcast.
+      description: |
+        Pushed by the gateway whenever a printer's state changes. The payload
+        is a full `PrintJobState` snapshot. On the relay path, encrypted with
+        the group key and broadcast-tagged (`*`).
+      payload:
+        $ref: '#/components/schemas/StreamStateEnvelope'
+      examples:
+        - name: Printing in progress
+          payload:
+            type: event
+            id: null
+            method: stream.state
+            deviceId: null
+            payload: >-
+              eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJwcmludGVyRGlzcGxheU5hbWUiOiJHYXJhZ2UgQTEgTWluaSIsInByaW50ZXJNb2RlbCI6IkJhbWJ1IExhYiBBMSBNaW5pIiwiam9iSWQiOiIxMjM0NTY3OC05QUJDLURFRjAtMTIzNC01Njc4OUFCQ0RFRjAiLCJqb2JOYW1lIjoiYmVuY2h5Lmdjb2RlIiwic3RhZ2UiOiJwcmludGluZyIsInByb2dyZXNzUGVyY2VudCI6NDIuNSwiY3VycmVudExheWVyIjo4NSwidG90YWxMYXllcnMiOjIwMCwibm96emxlVGVtcEMiOjIyMC4wLCJub3p6bGVUYXJnZXRDIjoyMjAuMCwiYmVkVGVtcEMiOjYwLjAsImJlZFRhcmdldEMiOjYwLjAsInVwZGF0ZWRBdCI6IjIwMjYtMDYtMDNUMTI6MzQ6NTZaIn0=
+
+    # ── key.rotate event ─────────────────────────────────────────────
+
+    keyRotateEvent:
+      name: key.rotate
+      title: Group Key Rotation Event
+      summary: New group key distribution (per-device, not broadcast).
+      description: |
+        Sent to each paired device individually when the group key is rotated
+        (e.g., after a device is unpaired). The payload contains the new group
+        key encrypted with the recipient's device shared key.
+
+        On the relay path, tagged with the specific client UUID (not `*`).
+      payload:
+        $ref: '#/components/schemas/KeyRotateEnvelope'
+      examples:
+        - name: Key rotation
+          payload:
+            type: event
+            id: null
+            method: key.rotate
+            deviceId: null
+            payload: >-
+              eyJlbmNyeXB0ZWRHcm91cEtleSI6InhZejEyM0FCQy4uLiIsImdyb3VwS2V5Tm9uY2UiOiJhQmNEZUZnSGlKa0wifQ==
+
+    # ── health ───────────────────────────────────────────────────────
+
+    healthRequest:
+      name: health.request
+      title: Health Check Request
+      payload:
+        $ref: '#/components/schemas/HealthRequestEnvelope'
+      examples:
+        - name: Health request
+          payload:
+            type: request
+            id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+            method: health
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "e30="
+
+    healthResponse:
+      name: health.response
+      title: Health Check Response
+      payload:
+        $ref: '#/components/schemas/HealthResponseEnvelope'
+      examples:
+        - name: Healthy gateway with one printer
+          payload:
+            type: response
+            id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+            method: health
+            deviceId: null
+            payload: >-
+              eyJzdGF0dXMiOiJvayIsInZlcnNpb24iOiIwLjEuMCIsImdhdGV3YXlJZCI6ImdhdGV3YXktMDAxIiwiZ2F0ZXdheU5hbWUiOiJIb21lIEdhdGV3YXkiLCJyZWxheVVSTCI6Imh0dHBzOi8vcmVsYXkucHJpbnRwYXJ0eS5hcHAiLCJ0aW1lIjoiMjAyNi0wNi0wM1QxMjozNDo1NloiLCJwcmludGVycyI6W3siaWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJkaXNwbGF5TmFtZSI6IkdhcmFnZSBBMSBNaW5pIiwic3RhZ2UiOiJwcmludGluZyJ9XX0=
+
+    # ── printers.list ────────────────────────────────────────────────
+
+    printersListRequest:
+      name: printers.list.request
+      title: List Printers Request
+      payload:
+        $ref: '#/components/schemas/PrintersListRequestEnvelope'
+      examples:
+        - name: List all printers
+          payload:
+            type: request
+            id: "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6"
+            method: printers.list
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "e30="
+
+    printersListResponse:
+      name: printers.list.response
+      title: List Printers Response
+      payload:
+        $ref: '#/components/schemas/PrintersListResponseEnvelope'
+      examples:
+        - name: Two printers registered
+          payload:
+            type: response
+            id: "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6"
+            method: printers.list
+            deviceId: null
+            payload: >-
+              W3siaWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJkaXNwbGF5TmFtZSI6IkdhcmFnZSBBMSBNaW5pIiwibW9kZWxOYW1lIjoiQmFtYnUgTGFiIEExIE1pbmkiLCJzdGFnZSI6InByaW50aW5nIiwicHJvZ3Jlc3NQZXJjZW50Ijo0Mi41fSx7ImlkIjoiQjJDM0Q0RTUtRjZBNy04QjlDLTBEMUUtRjJBM0I0QzVENkU3IiwiZGlzcGxheU5hbWUiOiJPZmZpY2UgUDFTIiwibW9kZWxOYW1lIjoiQmFtYnUgTGFiIFAxUyIsInN0YWdlIjoiaWRsZSIsInByb2dyZXNzUGVyY2VudCI6MC4wfV0=
+
+    # ── printers.state ───────────────────────────────────────────────
+
+    printersStateRequest:
+      name: printers.state.request
+      title: Get Printer State Request
+      payload:
+        $ref: '#/components/schemas/PrintersStateRequestEnvelope'
+      examples:
+        - name: Request state for a specific printer
+          payload:
+            type: request
+            id: "c3d4e5f6-a7b8-9c0d-e1f2-a3b4c5d6e7f8"
+            method: printers.state
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYifQ=="
+
+    printersStateResponse:
+      name: printers.state.response
+      title: Get Printer State Response
+      payload:
+        $ref: '#/components/schemas/PrintersStateResponseEnvelope'
+      examples:
+        - name: Full printer state
+          payload:
+            type: response
+            id: "c3d4e5f6-a7b8-9c0d-e1f2-a3b4c5d6e7f8"
+            method: printers.state
+            deviceId: null
+            payload: >-
+              eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJwcmludGVyRGlzcGxheU5hbWUiOiJHYXJhZ2UgQTEgTWluaSIsInByaW50ZXJNb2RlbCI6IkJhbWJ1IExhYiBBMSBNaW5pIiwiam9iSWQiOiIxMjM0NTY3OC05QUJDLURFRjAtMTIzNC01Njc4OUFCQ0RFRjAiLCJqb2JOYW1lIjoiYmVuY2h5Lmdjb2RlIiwic3RhZ2UiOiJwcmludGluZyIsInN1YnN0YWdlTWVzc2FnZSI6Ikluc3BlY3RpbmcgZmlyc3QgbGF5ZXIiLCJwcm9ncmVzc1BlcmNlbnQiOjQyLjUsImN1cnJlbnRMYXllciI6ODUsInRvdGFsTGF5ZXJzIjoyMDAsInN0YXJ0ZWRBdCI6IjIwMjYtMDYtMDNUMTA6MDA6MDBaIiwiZXN0aW1hdGVkRW5kQXQiOiIyMDI2LTA2LTAzVDE0OjMwOjAwWiIsIm5venpsZVRlbXBDIjoyMjAuMCwibm96emxlVGFyZ2V0QyI6MjIwLjAsImJlZFRlbXBDIjo2MC4wLCJiZWRUYXJnZXRDIjo2MC4wLCJ1cGRhdGVkQXQiOiIyMDI2LTA2LTAzVDEyOjM0OjU2WiJ9
+
+    # ── printers.register ────────────────────────────────────────────
+
+    printersRegisterRequest:
+      name: printers.register.request
+      title: Register Printer Request
+      payload:
+        $ref: '#/components/schemas/PrintersRegisterRequestEnvelope'
+      examples:
+        - name: Register a Bambu Lab A1 Mini
+          payload:
+            type: request
+            id: "d4e5f6a7-b8c9-0d1e-f2a3-b4c5d6e7f8a9"
+            method: printers.register
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "eyJkaXNwbGF5TmFtZSI6IkdhcmFnZSBBMSBNaW5pIiwibW9kZWxOYW1lIjoiQmFtYnUgTGFiIEExIE1pbmkiLCJob3N0IjoiMTkyLjE2OC4xLjEwMCIsInNlcmlhbCI6IjAwTTA5QTM1MDEwMDEyMyIsImFjY2Vzc0NvZGUiOiIxMjM0NTY3OCJ9"
+
+    printersRegisterResponse:
+      name: printers.register.response
+      title: Register Printer Response
+      payload:
+        $ref: '#/components/schemas/PrintersRegisterResponseEnvelope'
+      examples:
+        - name: Successfully registered
+          payload:
+            type: response
+            id: "d4e5f6a7-b8c9-0d1e-f2a3-b4c5d6e7f8a9"
+            method: printers.register
+            deviceId: null
+            payload: "eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJzdGF0dXMiOiJyZWdpc3RlcmVkIn0="
+
+    # ── printers.remove ──────────────────────────────────────────────
+
+    printersRemoveRequest:
+      name: printers.remove.request
+      title: Remove Printer Request
+      payload:
+        $ref: '#/components/schemas/PrintersRemoveRequestEnvelope'
+      examples:
+        - name: Remove a printer
+          payload:
+            type: request
+            id: "e5f6a7b8-c9d0-1e2f-a3b4-c5d6e7f8a9b0"
+            method: printers.remove
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYifQ=="
+
+    printersRemoveResponse:
+      name: printers.remove.response
+      title: Remove Printer Response
+      payload:
+        $ref: '#/components/schemas/PrintersRemoveResponseEnvelope'
+      examples:
+        - name: Successfully unregistered
+          payload:
+            type: response
+            id: "e5f6a7b8-c9d0-1e2f-a3b4-c5d6e7f8a9b0"
+            method: printers.remove
+            deviceId: null
+            payload: "eyJzdGF0dXMiOiJ1bnJlZ2lzdGVyZWQifQ=="
+
+    # ── activities.register ──────────────────────────────────────────
+
+    activitiesRegisterRequest:
+      name: activities.register.request
+      title: Register Live Activity Request
+      payload:
+        $ref: '#/components/schemas/ActivitiesRegisterRequestEnvelope'
+      examples:
+        - name: Register push token for Live Activity
+          payload:
+            type: request
+            id: "f6a7b8c9-d0e1-2f3a-b4c5-d6e7f8a9b0c1"
+            method: activities.register
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJwdXNoVG9rZW4iOiJhYmNkZWYwMTIzNDU2Nzg5Li4uIiwic2hhcmVkS2V5IjoiYmFzZTY0ZW5jb2RlZGtleS4uLiJ9"
+
+    activitiesRegisterResponse:
+      name: activities.register.response
+      title: Register Live Activity Response
+      payload:
+        $ref: '#/components/schemas/ActivitiesRegisterResponseEnvelope'
+      examples:
+        - name: Activity registered
+          payload:
+            type: response
+            id: "f6a7b8c9-d0e1-2f3a-b4c5-d6e7f8a9b0c1"
+            method: activities.register
+            deviceId: null
+            payload: "eyJzdGF0dXMiOiJyZWdpc3RlcmVkIn0="
+
+    # ── printer.command ──────────────────────────────────────────────
+
+    printerCommandRequest:
+      name: printer.command.request
+      title: Printer Command Request
+      payload:
+        $ref: '#/components/schemas/PrinterCommandRequestEnvelope'
+      examples:
+        - name: Pause a print job
+          payload:
+            type: request
+            id: "a7b8c9d0-e1f2-3a4b-c5d6-e7f8a9b0c1d2"
+            method: printer.command
+            deviceId: "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+            payload: "eyJwcmludGVySWQiOiJBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYiLCJjb21tYW5kIjoicGF1c2UifQ=="
+
+    printerCommandResponse:
+      name: printer.command.response
+      title: Printer Command Response
+      payload:
+        $ref: '#/components/schemas/PrinterCommandResponseEnvelope'
+      examples:
+        - name: Command sent successfully
+          payload:
+            type: response
+            id: "a7b8c9d0-e1f2-3a4b-c5d6-e7f8a9b0c1d2"
+            method: printer.command
+            deviceId: null
+            payload: "eyJzdGF0dXMiOiJzZW50In0="
+
+    # ── error ────────────────────────────────────────────────────────
+
+    errorEnvelope:
+      name: error
+      title: Error Response
+      summary: Returned when a request fails.
+      description: |
+        Error envelopes echo the request `id` and `method`. The payload
+        contains `code` (machine-readable) and `message` (human-readable).
+
+        Known error codes:
+        - `invalid_type` — envelope type was not "request"
+        - `unknown_method` — unrecognized method string
+        - `invalid_payload` — payload could not be decoded for the method
+        - `not_found` — referenced resource (e.g. printer) does not exist
+        - `handler_error` — unexpected error in the handler
+      payload:
+        $ref: '#/components/schemas/ErrorEnvelope'
+      examples:
+        - name: Unknown method error
+          payload:
+            type: error
+            id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+            method: foo.bar
+            deviceId: null
+            payload: "eyJjb2RlIjoidW5rbm93bl9tZXRob2QiLCJtZXNzYWdlIjoiVW5rbm93biBtZXRob2Q6IGZvby5iYXIifQ=="
+        - name: Printer not found
+          payload:
+            type: error
+            id: "c3d4e5f6-a7b8-9c0d-e1f2-a3b4c5d6e7f8"
+            method: printers.state
+            deviceId: null
+            payload: "eyJjb2RlIjoibm90X2ZvdW5kIiwibWVzc2FnZSI6IlByaW50ZXIgbm90IGZvdW5kOiBBMUIyQzNENC1FNUY2LTdBOEItOUMwRC1FMUYyQTNCNEM1RDYifQ=="
+
+  # ════════════════════════════════════════════════════════════════════
+  #  SCHEMAS
+  # ════════════════════════════════════════════════════════════════════
+
+  schemas:
+
+    # ── Core envelope ────────────────────────────────────────────────
+
+    MessageType:
+      type: string
+      enum:
+        - event
+        - request
+        - response
+        - error
+      description: |
+        Discriminator for the message kind.
+        - `event`: Gateway-initiated broadcast (no id).
+        - `request`: Client-initiated, carries a correlation id.
+        - `response`: Gateway reply, echoes the request id.
+        - `error`: Gateway error reply, echoes the request id.
+
+    MessageEnvelope:
+      type: object
+      description: |
+        The universal wire format for all WebSocket messages. On LAN this is
+        sent as plaintext JSON. On the relay tunnel, the entire envelope is
+        AES-256-GCM encrypted — the ciphertext decrypts to this JSON structure.
+
+        The `payload` field is a **base64-encoded JSON string** of the
+        method-specific data. This design avoids Swift Codable type-erasure
+        issues while keeping the envelope generically decodable.
+      required:
+        - type
+        - method
+        - payload
+      properties:
+        type:
+          $ref: '#/components/schemas/MessageType'
+        id:
+          type: string
+          nullable: true
+          description: |
+            Correlation UUID. Present on request/response/error envelopes for
+            matching responses to requests. Null for events.
+          examples:
+            - "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        method:
+          type: string
+          description: |
+            The operation name. Determines how to decode the payload.
+          examples:
+            - stream.state
+            - health
+            - printers.list
+            - printers.state
+            - printers.register
+            - printers.remove
+            - activities.register
+            - printer.command
+            - key.rotate
+        deviceId:
+          type: string
+          nullable: true
+          description: |
+            The paired device UUID. Included in requests so the gateway can
+            identify which shared key to use for encrypting the response.
+            Null in events and responses.
+          examples:
+            - "d1e2f3a4-b5c6-7d8e-9f0a-1b2c3d4e5f6a"
+        payload:
+          type: string
+          format: byte
+          description: |
+            Base64-encoded JSON of the method-specific data. Decode by:
+            1. Base64-decode to get raw bytes
+            2. JSON-decode the bytes into the method's payload schema
+          examples:
+            - "e30="
+
+    # ── Envelope wrappers (for message payload refs) ─────────────────
+
+    StreamStateEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: event
+            method:
+              const: stream.state
+          description: |
+            Envelope for stream.state events. The base64 payload decodes to a PrintJobState object.
+
+    KeyRotateEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: event
+            method:
+              const: key.rotate
+          description: |
+            Envelope for key.rotate events. The base64 payload decodes to a KeyRotatePayload object.
+
+    HealthRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: health
+
+    HealthResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: health
+
+    PrintersListRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: printers.list
+
+    PrintersListResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: printers.list
+
+    PrintersStateRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: printers.state
+
+    PrintersStateResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: printers.state
+
+    PrintersRegisterRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: printers.register
+
+    PrintersRegisterResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: printers.register
+
+    PrintersRemoveRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: printers.remove
+
+    PrintersRemoveResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: printers.remove
+
+    ActivitiesRegisterRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: activities.register
+
+    ActivitiesRegisterResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: activities.register
+
+    PrinterCommandRequestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: request
+            method:
+              const: printer.command
+
+    PrinterCommandResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: response
+            method:
+              const: printer.command
+
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/MessageEnvelope'
+        - type: object
+          properties:
+            type:
+              const: error
+
+    # ── Decoded payload schemas ──────────────────────────────────────
+
+    PrinterStage:
+      type: string
+      enum:
+        - idle
+        - preparing
+        - printing
+        - paused
+        - finishing
+        - done
+        - failed
+        - canceled
+        - offline
+      description: |
+        Normalized printer stage. Every vendor adapter maps to these values.
+        - `idle` — No active job, printer is ready.
+        - `preparing` — Heating bed/nozzle, homing, calibrating.
+        - `printing` — Actively extruding / building layers.
+        - `paused` — Job paused (user or error-triggered).
+        - `finishing` — Retract, park head, cooldown.
+        - `done` — Job completed successfully.
+        - `failed` — Job failed due to an error.
+        - `canceled` — Job was canceled by the user.
+        - `offline` — Adapter lost contact with the printer.
+
+    PrintJobState:
+      type: object
+      description: |
+        Complete snapshot of a printer's current state. This is the normalized
+        format produced by vendor adapters (e.g., Bambu Lab MQTT) and consumed
+        by all UI surfaces (iOS app, Live Activities, widgets).
+
+        Sent as the decoded payload of `stream.state` events and `printers.state`
+        responses. All `Date` fields are ISO 8601 strings.
+      required:
+        - printerId
+        - printerDisplayName
+        - printerModel
+        - stage
+        - progressPercent
+        - updatedAt
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: Stable UUID identifier for the printer.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        printerDisplayName:
+          type: string
+          description: Human-readable printer name set during registration.
+          examples:
+            - "Garage A1 Mini"
+        printerModel:
+          type: string
+          description: Printer model string.
+          examples:
+            - "Bambu Lab A1 Mini"
+        jobId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Adapter-synthesized job identifier. Null when stage is idle.
+          examples:
+            - "12345678-9ABC-DEF0-1234-56789ABCDEF0"
+        jobName:
+          type: string
+          nullable: true
+          description: Job/file name reported by the printer.
+          examples:
+            - "benchy.gcode"
+        stage:
+          $ref: '#/components/schemas/PrinterStage'
+        substageMessage:
+          type: string
+          nullable: true
+          description: |
+            Optional human-readable detail under the top-level stage. Set by
+            vendor adapters when the printer reports a finer-grained activity,
+            e.g., "Calibrating extrusion flow" while stage is preparing, or
+            "Inspecting first layer" while stage is printing.
+          examples:
+            - "Inspecting first layer"
+            - "Calibrating extrusion flow"
+        progressPercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          description: Job progress from 0.0 to 100.0.
+          examples:
+            - 42.5
+        currentLayer:
+          type: integer
+          nullable: true
+          description: Current layer number being printed.
+          examples:
+            - 85
+        totalLayers:
+          type: integer
+          nullable: true
+          description: Total number of layers in the job.
+          examples:
+            - 200
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp when the job started.
+          examples:
+            - "2026-06-03T10:00:00Z"
+        estimatedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 estimated completion timestamp.
+          examples:
+            - "2026-06-03T14:30:00Z"
+        nozzleTempC:
+          type: number
+          format: double
+          nullable: true
+          description: Current nozzle temperature in Celsius.
+          examples:
+            - 220.0
+        nozzleTargetC:
+          type: number
+          format: double
+          nullable: true
+          description: Target nozzle temperature in Celsius.
+          examples:
+            - 220.0
+        bedTempC:
+          type: number
+          format: double
+          nullable: true
+          description: Current bed temperature in Celsius.
+          examples:
+            - 60.0
+        bedTargetC:
+          type: number
+          format: double
+          nullable: true
+          description: Target bed temperature in Celsius.
+          examples:
+            - 60.0
+        errorCode:
+          type: string
+          nullable: true
+          description: Machine-readable error code when stage is failed.
+          examples:
+            - "0700_8001"
+        errorMessage:
+          type: string
+          nullable: true
+          description: Human-readable error description when stage is failed.
+          examples:
+            - "Nozzle temperature abnormal"
+        updatedAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when this state snapshot was produced.
+          examples:
+            - "2026-06-03T12:34:56Z"
+
+    # ── Method-specific payload schemas ──────────────────────────────
+
+    EmptyPayload:
+      type: object
+      description: Empty payload for methods that require no input (health, printers.list).
+      additionalProperties: false
+
+    KeyRotatePayload:
+      type: object
+      description: |
+        Payload for the key.rotate event. Contains the new group key encrypted
+        with the recipient device's shared key.
+      required:
+        - encryptedGroupKey
+        - groupKeyNonce
+      properties:
+        encryptedGroupKey:
+          type: string
+          format: byte
+          description: |
+            Base64-encoded AES-256-GCM ciphertext+tag of the new 32-byte group key,
+            encrypted with the recipient's device shared key.
+          examples:
+            - "xYz123ABC..."
+        groupKeyNonce:
+          type: string
+          format: byte
+          description: Base64-encoded 12-byte nonce used for the group key encryption.
+          examples:
+            - "aBcDeFgHiJkL"
+
+    HealthResponsePayload:
+      type: object
+      description: Gateway health and identity information.
+      required:
+        - status
+        - version
+        - gatewayId
+        - gatewayName
+        - time
+        - printers
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          description: |
+            "ok" when at least one printer is reachable; "degraded" when all
+            registered printers are offline.
+          examples:
+            - "ok"
+        version:
+          type: string
+          description: Gateway software version.
+          examples:
+            - "0.1.0"
+        gatewayId:
+          type: string
+          description: Unique gateway identifier.
+          examples:
+            - "gateway-001"
+        gatewayName:
+          type: string
+          description: Human-readable gateway name.
+          examples:
+            - "Home Gateway"
+        relayURL:
+          type: string
+          format: uri
+          nullable: true
+          description: Relay server URL if configured, null otherwise.
+          examples:
+            - "https://relay.printparty.app"
+        time:
+          type: string
+          format: date-time
+          description: Current gateway time (ISO 8601).
+          examples:
+            - "2026-06-03T12:34:56Z"
+        printers:
+          type: array
+          description: Summary of each registered printer's connection status.
+          items:
+            $ref: '#/components/schemas/PrinterHealthSummary'
+
+    PrinterHealthSummary:
+      type: object
+      description: Printer identity and connection status in the health response.
+      required:
+        - id
+        - displayName
+        - stage
+      properties:
+        id:
+          type: string
+          format: uuid
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        displayName:
+          type: string
+          examples:
+            - "Garage A1 Mini"
+        stage:
+          type: string
+          description: Current stage as a string (from PrinterStage enum, or "unknown").
+          examples:
+            - "printing"
+
+    PrinterSummary:
+      type: object
+      description: Printer summary returned by printers.list.
+      required:
+        - id
+        - displayName
+        - modelName
+        - stage
+        - progressPercent
+      properties:
+        id:
+          type: string
+          format: uuid
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        displayName:
+          type: string
+          examples:
+            - "Garage A1 Mini"
+        modelName:
+          type: string
+          examples:
+            - "Bambu Lab A1 Mini"
+        stage:
+          type: string
+          description: Current stage as a string (from PrinterStage enum, or "unknown").
+          examples:
+            - "printing"
+        progressPercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          examples:
+            - 42.5
+
+    PrintersStateRequestPayload:
+      type: object
+      description: Request payload for printers.state.
+      required:
+        - printerId
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: UUID of the printer to query.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+
+    PrintersRegisterRequestPayload:
+      type: object
+      description: Request payload for printers.register.
+      required:
+        - displayName
+        - modelName
+        - host
+        - serial
+        - accessCode
+      properties:
+        displayName:
+          type: string
+          description: Human-readable name for the printer.
+          examples:
+            - "Garage A1 Mini"
+        modelName:
+          type: string
+          description: Printer model identifier.
+          examples:
+            - "Bambu Lab A1 Mini"
+        host:
+          type: string
+          description: IP address or hostname of the printer on the local network.
+          examples:
+            - "192.168.1.100"
+        serial:
+          type: string
+          description: Printer serial number (used for Bambu MQTT authentication).
+          examples:
+            - "00M09A350100123"
+        accessCode:
+          type: string
+          description: Printer access code (8-digit code from the printer's LCD).
+          examples:
+            - "12345678"
+
+    PrintersRegisterResponsePayload:
+      type: object
+      description: Response payload for printers.register.
+      required:
+        - printerId
+        - status
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: Assigned UUID for the newly registered printer.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        status:
+          type: string
+          const: registered
+          examples:
+            - "registered"
+
+    PrintersRemoveRequestPayload:
+      type: object
+      description: Request payload for printers.remove.
+      required:
+        - printerId
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: UUID of the printer to unregister.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+
+    PrintersRemoveResponsePayload:
+      type: object
+      description: Response payload for printers.remove.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: unregistered
+          examples:
+            - "unregistered"
+
+    ActivitiesRegisterRequestPayload:
+      type: object
+      description: Request payload for activities.register.
+      required:
+        - printerId
+        - pushToken
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: UUID of the printer to receive Live Activity updates for.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        pushToken:
+          type: string
+          description: Hex-encoded APNs push token from ActivityKit's pushTokenUpdates.
+          examples:
+            - "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        sharedKey:
+          type: string
+          format: byte
+          nullable: true
+          description: |
+            Optional base64-encoded shared key for E2EE of push notification
+            content-state. When present, the gateway encrypts the content-state
+            with ChaCha20-Poly1305 before forwarding to APNs via the relay.
+          examples:
+            - "base64encodedkey..."
+
+    ActivitiesRegisterResponsePayload:
+      type: object
+      description: Response payload for activities.register.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: registered
+          examples:
+            - "registered"
+
+    PrinterCommandRequestPayload:
+      type: object
+      description: Request payload for printer.command.
+      required:
+        - printerId
+        - command
+      properties:
+        printerId:
+          type: string
+          format: uuid
+          description: UUID of the printer to command.
+          examples:
+            - "A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+        command:
+          type: string
+          enum:
+            - pause
+            - resume
+            - cancel
+          description: |
+            Control command to send to the printer.
+            - `pause` — Pause the current print job.
+            - `resume` — Resume a paused print job.
+            - `cancel` — Cancel/stop the current print job.
+          examples:
+            - "pause"
+
+    PrinterCommandResponsePayload:
+      type: object
+      description: Response payload for printer.command.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: sent
+          description: Indicates the command was forwarded to the printer.
+          examples:
+            - "sent"
+
+    ErrorPayload:
+      type: object
+      description: |
+        Decoded payload of error envelopes. Contains a machine-readable code
+        and a human-readable message.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: |
+            Machine-readable error code. Known values:
+            - `invalid_type` — Envelope type was not "request"
+            - `unknown_method` — Unrecognized method string
+            - `invalid_payload` — Payload could not be decoded
+            - `not_found` — Referenced resource does not exist
+            - `handler_error` — Unexpected error in the handler
+          examples:
+            - "unknown_method"
+            - "not_found"
+            - "invalid_payload"
+        message:
+          type: string
+          description: Human-readable error description.
+          examples:
+            - "Unknown method: foo.bar"
+            - "Printer not found: A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6"
+
+    # ── Relay encrypted frame schema (informational) ─────────────────
+
+    EncryptedFrame:
+      type: string
+      description: |
+        Wire format of an encrypted frame on the relay tunnel.
+
+        **Gateway → Relay (with routing tag):**
+        ```
+        <routing-tag>:<base64-nonce>.<base64-ciphertext>
+        ```
+
+        **Client → Relay (no tag — relay prepends client UUID):**
+        ```
+        <base64-nonce>.<base64-ciphertext>
+        ```
+
+        **Client receives (tag stripped by relay):**
+        ```
+        <base64-nonce>.<base64-ciphertext>
+        ```
+
+        Components:
+        - `routing-tag`: `*` for broadcast, or a client UUID for peer-to-peer
+        - `base64-nonce`: Base64-encoded 12-byte AES-GCM nonce
+        - `base64-ciphertext`: Base64-encoded ciphertext + 16-byte GCM auth tag
+
+        The ciphertext decrypts to a complete JSON `MessageEnvelope`.
+      examples:
+        - "*:kJ3xQ2m9f8a7bCdE.p2vLmR8sT1nWqY4cX5zK7..."
+        - "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6:rT5wYh8k.sN3mP9qR2..."
+        - "kJ3xQ2m9f8a7bCdE.p2vLmR8sT1nWqY4cX5zK7..."
+
+  # ════════════════════════════════════════════════════════════════════
+  #  SECURITY SCHEMES
+  # ════════════════════════════════════════════════════════════════════
+
+  securitySchemes:
+    relayApiKey:
+      type: httpApiKey
+      name: apiKey
+      in: query
+      description: |
+        Gateway API key for relay tunnel authentication. Obtained by calling
+        `POST /v1/gateways/register` on the relay server. Passed as a query
+        parameter on the WebSocket upgrade request:
+        `wss://relay/v1/tunnel/{gatewayId}/stream?apiKey=<key>`
+
+        This is **not** used for message encryption — it only authorizes the
+        gateway's tunnel connection to the relay.
+
+# ════════════════════════════════════════════════════════════════════════
+#  SECURITY (informational — not part of AsyncAPI schema)
+# ════════════════════════════════════════════════════════════════════════
+#
+#  End-to-End Encryption (relay path only)
+#  ─────────────────────────────────────────
+#  Algorithm:      AES-256-GCM
+#  Nonce:          12 bytes, random per message
+#  Plaintext:      Full MessageEnvelope JSON (type, id, method, deviceId, payload)
+#  AAD:            Empty (routing tag is relay metadata, not application data)
+#  Wire format:    <base64(nonce)>.<base64(ciphertext + 16-byte auth tag)>
+#
+#  Key types:
+#  ──────────
+#  1. Device shared key (per device ↔ gateway pair)
+#     - Created during LAN pairing via X25519 ECDH + HKDF
+#     - Used for: encrypting requests (client → gateway) and
+#       responses (gateway → client)
+#     - Relay frames tagged with client UUID
+#
+#  2. Group key (per gateway, shared with all paired devices)
+#     - Generated on first pairing (32 random bytes)
+#     - Distributed encrypted with each device's shared key during pairing
+#     - Used for: encrypting broadcast events (gateway → all clients)
+#     - Relay frames tagged with `*`
+#     - Rotated when a device is unpaired (forward secrecy)
+#
+#  3. Relay API key (per gateway ↔ relay)
+#     - 32-byte hex token for tunnel authentication
+#     - NOT used for encryption — only access control
+#
+#  Decryption strategy on iOS:
+#  ───────────────────────────
+#  Frame arrives as <nonce>.<ciphertext> (tag already stripped by relay).
+#  1. Try group key → success = broadcast event (stream.state)
+#  2. Try device shared key → success = response to our request
+#  3. Both fail → discard (should not happen in normal operation)
+#  Optimization: try device key first if pending requests exist.
+#
+#  Trust model:
+#  ────────────
+#  - Relay sees: gateway IDs, client UUIDs, routing tags, frame sizes, timing
+#  - Relay CANNOT see: message type, method, request ID, payload content,
+#    printer data, commands, push tokens (all inside ciphertext)
+#  - Cross-client isolation: responses tagged per-client, encrypted with
+#    per-device key. Client A never sees Client B's traffic.
+#  - Device revocation: group key rotation on unpair — removed device
+#    cannot decrypt future broadcast events.
+#  - Replay protection: random 12-byte nonce per frame, GCM rejects reuse.
+#
+# ════════════════════════════════════════════════════════════════════════
