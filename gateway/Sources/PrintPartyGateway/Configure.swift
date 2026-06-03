@@ -5,6 +5,11 @@
 
 import Vapor
 import Crypto
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 func configure(_ app: Application) async throws {
     // Bind to all interfaces by default so the iOS device on the same Wi-Fi
@@ -99,6 +104,20 @@ func configure(_ app: Application) async throws {
     }
     let bindHost = app.http.server.configuration.hostname
     let bindPort = app.http.server.configuration.port
+
+    // Build the list of URLs the iOS app can use to reach this gateway.
+    //
+    // Priority:
+    //   1. GATEWAY_HOSTS env var (comma-separated). Use this when running in
+    //      Docker bridge mode where the container can't see the host's LAN IP.
+    //      Example: GATEWAY_HOSTS=192.168.1.42,my-server.local
+    //   2. Auto-detected non-loopback IPv4 addresses from network interfaces.
+    //      Useful when running on the host directly or in host networking mode.
+    //   3. Always include localhost as a fallback.
+    let pairingHosts = resolvePairingHosts()
+    let pairingURLs = pairingHosts.map { "http://\($0):\(bindPort)" }
+    let pairingURLList = pairingURLs.map { "   \($0)" }.joined(separator: "\n")
+
     app.logger.notice("""
 
     ╔═══════════════════════════════════════════════════════════════╗
@@ -110,13 +129,74 @@ func configure(_ app: Application) async throws {
 
        PAIRING CODE: \(code)   (valid 5 minutes)
 
-       In the iOS app:
-         Settings → Gateways → +
-         URL  : http://localhost:\(bindPort) (Simulator)
-                http://<mac-ip>:\(bindPort)  (real device)
+       In the iOS app go to Settings → Gateways → + and enter one of:
+    \(pairingURLList)
          Code : \(code)
     ╚═══════════════════════════════════════════════════════════════╝
     """)
+}
+
+// MARK: - Pairing host discovery
+
+/// Returns the list of hosts the gateway can be reached at, for use in the
+/// startup banner. Always includes localhost. Reads GATEWAY_HOSTS env var
+/// (comma-separated) as an override, else auto-detects non-loopback IPv4
+/// addresses from local network interfaces.
+private func resolvePairingHosts() -> [String] {
+    var hosts: [String] = []
+
+    if let env = Environment.get("GATEWAY_HOSTS"), !env.isEmpty {
+        hosts.append(contentsOf: env
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty })
+    } else {
+        hosts.append(contentsOf: enumerateLocalIPv4Addresses())
+    }
+
+    // Always include localhost as a last-resort entry.
+    if !hosts.contains("localhost") {
+        hosts.append("localhost")
+    }
+    return hosts
+}
+
+/// Enumerate non-loopback IPv4 addresses from local network interfaces.
+/// In Docker bridge mode this only returns the container's internal IP,
+/// which is why GATEWAY_HOSTS exists as an override.
+private func enumerateLocalIPv4Addresses() -> [String] {
+    var results: [String] = []
+    var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return [] }
+    defer { freeifaddrs(ifaddrPtr) }
+
+    var cursor: UnsafeMutablePointer<ifaddrs>? = first
+    while let ptr = cursor {
+        defer { cursor = ptr.pointee.ifa_next }
+
+        guard let addr = ptr.pointee.ifa_addr else { continue }
+        guard Int32(addr.pointee.sa_family) == AF_INET else { continue }
+
+        var hostBuffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        let result = getnameinfo(
+            addr,
+            socklen_t(MemoryLayout<sockaddr_in>.size),
+            &hostBuffer,
+            socklen_t(hostBuffer.count),
+            nil,
+            0,
+            NI_NUMERICHOST
+        )
+        guard result == 0 else { continue }
+
+        let address = String(cString: hostBuffer)
+        // Skip loopback (handled separately) and link-local autoconfig.
+        if address == "127.0.0.1" || address.hasPrefix("169.254.") { continue }
+        if !results.contains(address) {
+            results.append(address)
+        }
+    }
+    return results
 }
 
 struct PairingServiceKey: StorageKey {

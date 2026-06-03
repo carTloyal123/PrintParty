@@ -17,6 +17,7 @@ services:
     environment:
       - RELAY_URL=${RELAY_URL:-http://relay:8090}
       - GATEWAY_NAME=${GATEWAY_NAME:-PrintParty Gateway}
+      - GATEWAY_HOSTS=${GATEWAY_HOSTS:-}
     volumes:
       - gateway-data:/data
     restart: unless-stopped
