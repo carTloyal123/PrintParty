@@ -19,12 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home printparty
+RUN useradd --create-home printparty \
+    && mkdir -p /data \
+    && chown printparty:printparty /data
 USER printparty
 
 COPY --from=build /build/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
 
-ENV PRINTPARTY_DATA_DIR=/home/printparty/data
+ENV PRINTPARTY_DATA_DIR=/data
 EXPOSE 8080
 
 ENTRYPOINT ["printparty-gateway"]
