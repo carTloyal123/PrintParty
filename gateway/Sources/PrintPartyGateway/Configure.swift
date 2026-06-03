@@ -156,9 +156,12 @@ private func resolvePairingHosts() -> [String] {
             .filter { !$0.isEmpty })
     } else {
         hosts.append(contentsOf: enumerateLocalIPv4Addresses())
-        if let mdns = mDNSHostname() {
-            hosts.append(mdns)
-        }
+    }
+
+    // mDNS hostname is always added when valid. The user has to explicitly
+    // set `hostname:` in compose for this to be useful, so it's intentional.
+    if let mdns = mDNSHostname(), !hosts.contains(mdns) {
+        hosts.append(mdns)
     }
 
     // Always include localhost as a last-resort entry.
