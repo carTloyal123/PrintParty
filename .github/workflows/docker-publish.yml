@@ -12,6 +12,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  IMAGE_OWNER: cartloyal123
 
 jobs:
   # ── Build each service × platform natively ─────────────────────
@@ -46,7 +47,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/printparty-${{ matrix.service }}
 
       # Build and push a single-platform image by digest (no tag yet).
       - uses: docker/build-push-action@v6
@@ -56,7 +57,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,push-by-digest=true,name-resolution-mode=tag,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
+          outputs: type=image,push-by-digest=true,name-resolution-mode=tag,name=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/printparty-${{ matrix.service }}
 
       # Export the digest so the merge job can reference it.
       - name: Export digest
@@ -103,7 +104,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/printparty-${{ matrix.service }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
@@ -113,4 +114,4 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ github.repository_owner }}/printparty-${{ matrix.service }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/printparty-${{ matrix.service }}@sha256:%s ' *)
