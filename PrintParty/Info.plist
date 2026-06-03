@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	    App Transport Security exception so the iOS app can speak HTTP
+	    to a user-hosted PrintParty gateway running on the local network.
+
+	    NSAllowsLocalNetworking is the narrowest exception that meets our
+	    needs: it permits cleartext HTTP only for IETF RFC 1918 / RFC 4193
+	    address ranges, .local mDNS hostnames, and 127.0.0.0/8. Public
+	    Internet hosts still require valid TLS. When we add HTTPS to the
+	    gateway (Milestone 7+), this exception will be tightened or removed.
+
+	    All other Info.plist keys (display name, supported orientations,
+	    Live Activities, Local Network usage description, scene manifest,
+	    etc.) come from INFOPLIST_KEY_* settings in the build configuration;
+	    Xcode merges those over this file at build time.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

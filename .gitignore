@@ -1,0 +1,22 @@
+# Apple APNs signing keys — NEVER commit these
+*.p8
+
+# Xcode
+build/
+DerivedData/
+.build-derived-data/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# SPM
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env
+*.env.local
+nohup.out

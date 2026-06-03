@@ -6,14 +6,80 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4C4AE5AF2FCD385700AAE55A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */; };
+		4C4AE5B12FCD385700AAE55A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */; };
+		4C4AE5BE2FCD385800AAE55A /* PrintPartyWidgetExtensionExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4C4AE5BC2FCD385800AAE55A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4C4AE5762FCD2F8B00AAE55A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4C4AE5AB2FCD385700AAE55A;
+			remoteInfo = PrintPartyWidgetExtensionExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4C4AE5BF2FCD385800AAE55A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4C4AE5BE2FCD385800AAE55A /* PrintPartyWidgetExtensionExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		4C4AE57E2FCD2F8B00AAE55A /* PrintParty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrintParty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PrintPartyWidgetExtensionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
+		4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4C4AE5C22FCD385800AAE55A /* Exceptions for "PrintPartyWidgetExtension" folder in "PrintPartyWidgetExtensionExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */;
+		};
+		4C4AE5E02FCD600000AAE55A /* Exceptions for "PrintParty" folder in "PrintParty" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4C4AE57D2FCD2F8B00AAE55A /* PrintParty */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4C4AE5802FCD2F8B00AAE55A /* PrintParty */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4C4AE5E02FCD600000AAE55A /* Exceptions for "PrintParty" folder in "PrintParty" target */,
+			);
 			path = PrintParty;
+			sourceTree = "<group>";
+		};
+		4C4AE5B22FCD385700AAE55A /* PrintPartyWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4C4AE5C22FCD385800AAE55A /* Exceptions for "PrintPartyWidgetExtension" folder in "PrintPartyWidgetExtensionExtension" target */,
+			);
+			path = PrintPartyWidgetExtension;
+			sourceTree = "<group>";
+		};
+		4C4AE5D02FCD500000AAE55A /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +92,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4C4AE5A92FCD385700AAE55A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4C4AE5B12FCD385700AAE55A /* SwiftUI.framework in Frameworks */,
+				4C4AE5AF2FCD385700AAE55A /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		4C4AE5752FCD2F8B00AAE55A = {
 			isa = PBXGroup;
 			children = (
+				4C4AE5D02FCD500000AAE55A /* Shared */,
 				4C4AE5802FCD2F8B00AAE55A /* PrintParty */,
+				4C4AE5B22FCD385700AAE55A /* PrintPartyWidgetExtension */,
+				4C4AE5AD2FCD385700AAE55A /* Frameworks */,
 				4C4AE57F2FCD2F8B00AAE55A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +119,18 @@
 			isa = PBXGroup;
 			children = (
 				4C4AE57E2FCD2F8B00AAE55A /* PrintParty.app */,
+				4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		4C4AE5AD2FCD385700AAE55A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */,
+				4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,13 +143,16 @@
 				4C4AE57A2FCD2F8B00AAE55A /* Sources */,
 				4C4AE57B2FCD2F8B00AAE55A /* Frameworks */,
 				4C4AE57C2FCD2F8B00AAE55A /* Resources */,
+				4C4AE5BF2FCD385800AAE55A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				4C4AE5BD2FCD385800AAE55A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4C4AE5802FCD2F8B00AAE55A /* PrintParty */,
+				4C4AE5D02FCD500000AAE55A /* Shared */,
 			);
 			name = PrintParty;
 			packageProductDependencies = (
@@ -69,6 +160,29 @@
 			productName = PrintParty;
 			productReference = 4C4AE57E2FCD2F8B00AAE55A /* PrintParty.app */;
 			productType = "com.apple.product-type.application";
+		};
+		4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4C4AE5C32FCD385800AAE55A /* Build configuration list for PBXNativeTarget "PrintPartyWidgetExtensionExtension" */;
+			buildPhases = (
+				4C4AE5A82FCD385700AAE55A /* Sources */,
+				4C4AE5A92FCD385700AAE55A /* Frameworks */,
+				4C4AE5AA2FCD385700AAE55A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4C4AE5B22FCD385700AAE55A /* PrintPartyWidgetExtension */,
+				4C4AE5D02FCD500000AAE55A /* Shared */,
+			);
+			name = PrintPartyWidgetExtensionExtension;
+			packageProductDependencies = (
+			);
+			productName = PrintPartyWidgetExtensionExtension;
+			productReference = 4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -78,9 +192,12 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					4C4AE57D2FCD2F8B00AAE55A = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					4C4AE5AB2FCD385700AAE55A = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -100,12 +217,20 @@
 			projectRoot = "";
 			targets = (
 				4C4AE57D2FCD2F8B00AAE55A /* PrintParty */,
+				4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		4C4AE57C2FCD2F8B00AAE55A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4C4AE5AA2FCD385700AAE55A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +247,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4C4AE5A82FCD385700AAE55A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4C4AE5BD2FCD385800AAE55A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */;
+			targetProxy = 4C4AE5BC2FCD385800AAE55A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		4C4AE5892FCD2F8C00AAE55A /* Debug */ = {
@@ -159,6 +299,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -182,6 +323,8 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				COMPILATION_CACHING_ENABLED = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -221,6 +364,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -235,8 +379,10 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				COMPILATION_CACHING_ENABLED = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -246,14 +392,20 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PrintParty/PrintParty.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintParty/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty connects to your 3D printer on your local network to read print progress.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -290,14 +442,20 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PrintParty/PrintParty.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintParty/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty connects to your 3D printer on your local network to read print progress.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -329,6 +487,92 @@
 			};
 			name = Release;
 		};
+		4C4AE5C02FCD385800AAE55A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintPartyWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.PrintPartyWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		4C4AE5C12FCD385800AAE55A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintPartyWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.PrintPartyWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -346,6 +590,15 @@
 			buildConfigurations = (
 				4C4AE58C2FCD2F8C00AAE55A /* Debug */,
 				4C4AE58D2FCD2F8C00AAE55A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4C4AE5C32FCD385800AAE55A /* Build configuration list for PBXNativeTarget "PrintPartyWidgetExtensionExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4C4AE5C02FCD385800AAE55A /* Debug */,
+				4C4AE5C12FCD385800AAE55A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
