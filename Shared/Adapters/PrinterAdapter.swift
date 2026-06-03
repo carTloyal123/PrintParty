@@ -2,13 +2,9 @@
 //  PrinterAdapter.swift
 //  PrintParty (shared between app and widget extension)
 //
-//  The single contract every printer integration implements. By the v2
-//  architecture plan, this is the abstraction that will eventually live in
-//  both the iOS app (for LAN adapters running on-device while in-network) and
-//  the user-hosted gateway (for cloud adapters running off-device).
+//  The single contract every printer integration implements.
 //
 //  Concrete implementations:
-//    • BambuLanAdapter    — Bambu Lab LAN MQTT adapter
 //    • GatewayAdapter     — WebSocket adapter for gateway-managed printers
 //
 
@@ -25,8 +21,12 @@ public protocol PrinterAdapter: AnyObject {
 
     var printerId: UUID { get }
 
-    /// Stable description used for diagnostics ("Bambu LAN", "Gateway", etc.).
+    /// Stable description used for diagnostics ("Gateway", etc.).
     var kind: String { get }
+
+    /// Current connection phase. Adapters update this as the underlying
+    /// transport connects, disconnects, or transitions between paths.
+    var connectionPhase: ConnectionPhase { get }
 
     /// Cold stream: only starts producing once `start()` has been called.
     /// Each access returns a new AsyncStream wired to the same source.

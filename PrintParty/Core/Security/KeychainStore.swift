@@ -3,7 +3,8 @@
 //  PrintParty
 //
 //  Minimal Keychain wrapper for secrets that must never live in SwiftData.
-//  Today the only secret stored here is the Bambu LAN access code.
+//  Stores gateway shared symmetric keys (ECDH-derived) and group keys
+//  (for broadcast event decryption).
 //
 //  Items are scoped to the app's bundle (kSecAttrService = bundle id) and
 //  accessible only when the device is unlocked (kSecAttrAccessibleWhenUnlocked).
@@ -70,14 +71,15 @@ enum KeychainStore {
 
     // MARK: - Conventions
 
-    /// Account key for a Bambu printer's LAN access code.
-    static func bambuAccessCodeAccount(printerId: UUID) -> String {
-        "bambu.\(printerId.uuidString).accessCode"
-    }
-
     /// Account key for a paired gateway's shared symmetric key (raw 32-byte
     /// HKDF output, base64-encoded for storage).
     static func gatewaySharedKeyAccount(gatewayId: String) -> String {
         "gateway.\(gatewayId).sharedKey"
+    }
+
+    /// Account key for a paired gateway's group key (raw 32-byte key,
+    /// base64-encoded for storage). Used for decrypting broadcast events.
+    static func gatewayGroupKeyAccount(gatewayId: String) -> String {
+        "gateway.\(gatewayId).groupKey"
     }
 }

@@ -3,8 +3,13 @@
 //  printparty-relay
 //
 //  WebSocket tunnel broker: gateways connect on /v1/tunnel/:gatewayId/connect
-//  and iOS clients connect on /v1/tunnel/:gatewayId/stream.  Text frames
-//  from the gateway are fanned-out to all downstream iOS clients.
+//  and iOS clients connect on /v1/tunnel/:gatewayId/stream.
+//
+//  Bidirectional routing:
+//  - Gateway → Relay: tagged frames "<tag>:<payload>". Tag "*" = broadcast,
+//    UUID tag = route to specific client only.
+//  - Client → Relay → Gateway: client sends raw frame, relay prepends
+//    "<clientId>:" and forwards upstream to the gateway.
 //
 
 import Vapor
@@ -20,8 +25,8 @@ final class TunnelBroker: Sendable {
 
     /// One gateway WebSocket per gatewayId.
     private let _lock = NIOLock()
-    private var _upstreams: [String: WebSocket] = [:]
-    private var _downstreams: [String: [UUID: WebSocket]] = [:]
+    nonisolated(unsafe) private var _upstreams: [String: WebSocket] = [:]
+    nonisolated(unsafe) private var _downstreams: [String: [UUID: WebSocket]] = [:]
 
     private let logger: Logger
 
@@ -81,9 +86,36 @@ final class TunnelBroker: Sendable {
         logger.info("[Tunnel] Client \(clientId) disconnected from gateway \(gatewayId)")
     }
 
-    // MARK: - Fan-out
+    // MARK: - Downstream routing (gateway → clients)
 
+    /// Route a tagged frame from the gateway to downstream client(s).
+    ///
+    /// Frame format: `<tag>:<payload>`
+    /// - `*` tag: broadcast payload to all downstream clients.
+    /// - UUID tag: send payload to that specific client only.
+    /// - Unrecognized tag: log warning and drop.
     func forward(gatewayId: String, text: String) {
+        // Split on first ":" to extract the routing tag.
+        guard let colonIndex = text.firstIndex(of: ":") else {
+            logger.warning("[Tunnel] Frame from gateway \(gatewayId) has no routing tag — dropped")
+            return
+        }
+        let tag = String(text[text.startIndex..<colonIndex])
+        let payload = String(text[text.index(after: colonIndex)...])
+
+        if tag == "*" {
+            // Broadcast to all downstream clients.
+            broadcastToAll(gatewayId: gatewayId, payload: payload)
+        } else if let clientUUID = UUID(uuidString: tag) {
+            // Route to a specific client.
+            sendToClient(gatewayId: gatewayId, clientId: clientUUID, payload: payload)
+        } else {
+            logger.warning("[Tunnel] Unrecognized routing tag '\(tag)' from gateway \(gatewayId) — dropped")
+        }
+    }
+
+    /// Send payload to all downstream clients for a gateway.
+    private func broadcastToAll(gatewayId: String, payload: String) {
         var clients: [UUID: WebSocket]?
         _lock.withLock {
             clients = _downstreams[gatewayId]
@@ -94,7 +126,7 @@ final class TunnelBroker: Sendable {
             if ws.isClosed {
                 closedIds.append(id)
             } else {
-                ws.send(text)
+                ws.send(payload)
             }
         }
         if !closedIds.isEmpty {
@@ -107,6 +139,41 @@ final class TunnelBroker: Sendable {
                 }
             }
         }
+    }
+
+    /// Send payload to a specific downstream client.
+    private func sendToClient(gatewayId: String, clientId: UUID, payload: String) {
+        var ws: WebSocket?
+        _lock.withLock {
+            ws = _downstreams[gatewayId]?[clientId]
+        }
+        guard let ws else {
+            logger.warning("[Tunnel] Client \(clientId) not found for gateway \(gatewayId) — frame dropped")
+            return
+        }
+        if ws.isClosed {
+            _lock.withLock {
+                _downstreams[gatewayId]?[clientId] = nil
+            }
+        } else {
+            ws.send(payload)
+        }
+    }
+
+    // MARK: - Upstream forwarding (client → gateway)
+
+    /// Forward a frame from a downstream client to the upstream gateway.
+    /// Prepends the client's UUID: `<clientId>:<text>`.
+    func forwardUpstream(gatewayId: String, clientId: UUID, text: String) {
+        var upstream: WebSocket?
+        _lock.withLock {
+            upstream = _upstreams[gatewayId]
+        }
+        guard let upstream, !upstream.isClosed else {
+            logger.warning("[Tunnel] No upstream for gateway \(gatewayId) — client \(clientId) frame dropped")
+            return
+        }
+        upstream.send("\(clientId):\(text)")
     }
 
     var upstreamCount: Int { _lock.withLock { _upstreams.count } }
@@ -147,6 +214,14 @@ struct TunnelRoutes: RouteCollection {
             return
         }
 
+        // Validate API key from query string.
+        let registry = req.gatewayRegistry
+        guard let apiKey = req.query[String.self, at: "apiKey"],
+              registry.validate(gatewayId: gatewayId, apiKey: apiKey) else {
+            _ = ws.close(code: .init(codeNumber: 4001))
+            return
+        }
+
         let broker = req.tunnelBroker
 
         ws.onText { ws, text in
@@ -163,7 +238,8 @@ struct TunnelRoutes: RouteCollection {
         broker.registerUpstream(gatewayId: gatewayId, ws: ws)
     }
 
-    /// iOS clients connect here to receive fanned-out state frames.
+    /// iOS clients connect here to receive fanned-out state frames
+    /// and send requests upstream to the gateway.
     @Sendable
     func handleStream(req: Request, ws: WebSocket) {
         guard let gatewayId = req.parameters.get("gatewayId") else {
@@ -172,7 +248,23 @@ struct TunnelRoutes: RouteCollection {
         }
 
         let broker = req.tunnelBroker
+
+        // Rate-limit downstream connections per gateway.
+        if broker.downstreamCount(for: gatewayId) >= 10 {
+            _ = ws.close(code: .init(codeNumber: 4029))
+            return
+        }
+
         let clientId = broker.registerDownstream(gatewayId: gatewayId, ws: ws)
+        let clientIP = req.remoteAddress?.ipAddress ?? "unknown"
+        req.logger.info("[Tunnel] Downstream client \(clientId) connected from \(clientIP) for gateway \(gatewayId)")
+
+        // Forward client messages upstream to the gateway.
+        // The relay prepends the client's UUID so the gateway can route
+        // the response back to this specific client.
+        ws.onText { ws, text in
+            broker.forwardUpstream(gatewayId: gatewayId, clientId: clientId, text: text)
+        }
 
         // Periodic ping to detect dead connections.
         let pingTask = Task {
@@ -186,6 +278,7 @@ struct TunnelRoutes: RouteCollection {
         ws.onClose.whenComplete { _ in
             pingTask.cancel()
             broker.unregisterDownstream(gatewayId: gatewayId, clientId: clientId)
+            req.logger.info("[Tunnel] Downstream client \(clientId) disconnected from \(clientIP) for gateway \(gatewayId)")
         }
     }
 }

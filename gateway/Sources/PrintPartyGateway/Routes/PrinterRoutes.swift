@@ -105,7 +105,7 @@ struct PrinterRoutes: RouteCollection {
               let id = UUID(uuidString: idStr) else {
             throw Abort(.badRequest, reason: "invalid printerId")
         }
-        guard await req.printerService.state(for: id) != nil else {
+        guard await req.printerService.hasRegisteredPrinter(id: id) else {
             throw Abort(.notFound, reason: "printer not found")
         }
         await req.printerService.unregister(printerId: id)

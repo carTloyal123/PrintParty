@@ -23,5 +23,12 @@ let package = Package(
                 .product(name: "APNS", package: "APNSwift"),
             ]
         ),
+        .testTarget(
+            name: "PrintPartyRelayTests",
+            dependencies: [
+                "PrintPartyRelay",
+                .product(name: "XCTVapor", package: "vapor"),
+            ]
+        ),
     ]
 )

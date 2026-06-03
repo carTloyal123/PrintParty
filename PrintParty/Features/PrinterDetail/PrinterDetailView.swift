@@ -25,21 +25,27 @@ struct PrinterDetailView: View {
     @AppStorage(LiveActivityCoordinator.lingerDurationKey)
     private var lingerDuration: Double = LiveActivityCoordinator.defaultLingerDuration
 
+    /// Brief command feedback indicator.
+    @State private var commandFeedback: CommandFeedback?
+
+    private enum CommandFeedback: Equatable {
+        case success(String)
+        case error(String)
+    }
+
     var body: some View {
         let state = registry.state(for: printer)
-        let source = registry.stateSource(for: printer)
+        let phase = registry.connectionPhase(for: printer)
         ScrollView {
             VStack(spacing: 20) {
-                if source == .push {
-                    pushFallbackBanner(state: state)
-                } else if source == .relay {
-                    relayBanner(state: state)
-                }
+                connectionBanner(phase: phase, state: state)
                 JobProgressCard(state: state)
                 temperatureCard(state: state)
+                if printer.adapterKind == .gateway {
+                    gatewayCommandsCard(state: state)
+                }
                 liveActivityCard(state: state)
-                controlsCard(state: state)
-                debugCard(state: state)
+                debugCard(state: state, phase: phase)
             }
             .padding()
         }
@@ -52,7 +58,42 @@ struct PrinterDetailView: View {
 
     // MARK: Cards
 
-    private func relayBanner(state: PrintJobState) -> some View {
+    @ViewBuilder
+    private func connectionBanner(phase: ConnectionPhase, state: PrintJobState) -> some View {
+        switch phase {
+        case .connecting:
+            connectingBanner
+        case .connectedRelay:
+            relayBanner
+        case .push:
+            pushFallbackBanner(state: state)
+        case .disconnected(let reason):
+            disconnectedBanner(reason: reason, state: state)
+        case .connectedLAN:
+            EmptyView()
+        }
+    }
+
+    private var connectingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(printer.adapterKind == .gateway
+                     ? "Connecting to gateway\u{2026}"
+                     : "Connecting to printer\u{2026}")
+                    .font(.subheadline.weight(.medium))
+                Text("Establishing connection. This usually takes a few seconds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var relayBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "globe")
                 .foregroundStyle(.blue)
@@ -84,6 +125,39 @@ struct PrinterDetailView: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func disconnectedBanner(reason: String?, state: PrintJobState) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Disconnected")
+                    .font(.subheadline.weight(.medium))
+                Text(reason ?? "Connection lost.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let age = Date.now.timeIntervalSince(state.updatedAt)
+                if age > 5 {
+                    Text("Last data \(freshnessText(age: age))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func freshnessText(age: TimeInterval) -> String {
+        if age < 60 {
+            return "\(Int(age))s ago"
+        } else if age < 3600 {
+            return "\(Int(age / 60))m ago"
+        } else {
+            return "\(Int(age / 3600))h ago"
+        }
     }
 
     private func liveActivityCard(state: PrintJobState) -> some View {
@@ -233,79 +307,11 @@ struct PrinterDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func controlsCard(state: PrintJobState) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Controls")
-                .font(.headline)
-            controlButtons(state: state)
-        }
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    @ViewBuilder
-    private func controlButtons(state: PrintJobState) -> some View {
-        let source = registry.stateSource(for: printer)
-        if source == .push {
-            Label("Controls unavailable — not connected to gateway.", systemImage: "wifi.slash")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        } else {
-            switch printer.adapterKind {
-            case .bambuLabA1Mini:
-                bambuControls(state: state)
-            case .gateway:
-                gatewayControls(state: state)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func bambuControls(state: PrintJobState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Bambu LAN adapter is a stub", systemImage: "wrench.and.screwdriver")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("The MQTT client lands in the next update. The printer's host, serial, and access code are already stored — the adapter just needs to connect.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let host = printer.host {
-                Text("Host: \(host)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-            }
-            if let serial = printer.serial {
-                Text("Serial: \(serial)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func gatewayControls(state: PrintJobState) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Managed by gateway", systemImage: "server.rack")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("This printer is connected through your self-hosted gateway. Telemetry streams via WebSocket; commands will be added in a future update.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let gid = printer.gatewayId {
-                Text("Gateway: \(gid)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    private func debugCard(state: PrintJobState) -> some View {
-        let source = registry.stateSource(for: printer)
-        return DisclosureGroup("Debug — Raw State") {
+    private func debugCard(state: PrintJobState, phase: ConnectionPhase) -> some View {
+        return DisclosureGroup("Debug \u{2014} Raw State") {
             VStack(alignment: .leading, spacing: 6) {
                 debugRow("printerId", state.printerId.uuidString)
-                debugRow("jobId", state.jobId?.uuidString ?? "—")
+                debugRow("jobId", state.jobId?.uuidString ?? "\u{2014}")
                 debugRow("stage", state.stage.rawValue)
                 debugRow("progress", String(format: "%.2f%%", state.progressPercent))
                 debugRow("layer", "\(state.currentLayer ?? 0) / \(state.totalLayers ?? 0)")
@@ -318,16 +324,18 @@ struct PrinterDetailView: View {
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(source == .push ? Color.orange : (source == .relay ? Color.blue : Color.green))
+                        .fill(phase.tint)
                         .frame(width: 8, height: 8)
-                    Text("Source: \(source == .push ? "Push (APNs)" : (source == .relay ? "Relay (WebSocket)" : "Adapter (WebSocket)"))")
-                        .foregroundStyle(source == .push ? .orange : (source == .relay ? .blue : .green))
+                    Text("Phase: \(phase.displayName)")
+                        .foregroundStyle(phase.tint)
                 }
                 .font(.caption.monospaced())
 
-                if source == .push {
-                    debugRow("push age", "\(Int(Date.now.timeIntervalSince(state.updatedAt)))s ago")
+                if case .disconnected(let reason) = phase, let reason {
+                    debugRow("reason", reason)
                 }
+
+                debugRow("data age", "\(Int(Date.now.timeIntervalSince(state.updatedAt)))s")
             }
             .font(.caption.monospaced())
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -335,6 +343,107 @@ struct PrinterDetailView: View {
         }
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Gateway printer commands
+
+    private func gatewayCommandsCard(state: PrintJobState) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Controls")
+                .font(.headline)
+
+            if let feedback = commandFeedback {
+                HStack(spacing: 6) {
+                    switch feedback {
+                    case .success(let msg):
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(msg)
+                            .foregroundStyle(.secondary)
+                    case .error(let msg):
+                        Image(systemName: "exclamation.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text(msg)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption)
+                .transition(.opacity)
+            }
+
+            HStack(spacing: 12) {
+                if state.stage == .printing {
+                    Button {
+                        Task { await sendCommand("pause") }
+                    } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if state.stage == .paused {
+                    Button {
+                        Task { await sendCommand("resume") }
+                    } label: {
+                        Label("Resume", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.green)
+                }
+
+                if state.stage.isActive {
+                    Button(role: .destructive) {
+                        Task { await sendCommand("cancel") }
+                    } label: {
+                        Label("Cancel", systemImage: "xmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            if !state.stage.isActive {
+                Text("Commands available when a print is active.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .animation(.default, value: commandFeedback)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func sendCommand(_ command: String) async {
+        guard let adapter = registry.adapter(for: activityPrinterId) as? GatewayAdapter else {
+            commandFeedback = .error("No gateway connection")
+            clearFeedbackAfterDelay()
+            return
+        }
+
+        struct CommandPayload: Encodable {
+            let printerId: UUID
+            let command: String
+        }
+
+        do {
+            _ = try await adapter.request("printer.command", payload: CommandPayload(
+                printerId: activityPrinterId,
+                command: command
+            ))
+            commandFeedback = .success("\(command.capitalized) sent")
+        } catch {
+            commandFeedback = .error(error.localizedDescription)
+        }
+        clearFeedbackAfterDelay()
+    }
+
+    private func clearFeedbackAfterDelay() {
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            commandFeedback = nil
+        }
     }
 
     private func debugRow(_ label: String, _ value: String) -> some View {

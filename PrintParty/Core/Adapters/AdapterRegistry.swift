@@ -13,6 +13,7 @@
 //
 
 import Foundation
+import CryptoKit
 import Observation
 
 @MainActor
@@ -27,7 +28,7 @@ final class AdapterRegistry {
 
     /// Tracks how each printer's current state was obtained.
     enum StateSource: Equatable {
-        /// State from the live WebSocket/MQTT adapter connection (LAN).
+        /// State from the live WebSocket adapter connection (LAN).
         case adapter
         /// State from the live WebSocket connection via relay tunnel.
         case relay
@@ -35,6 +36,9 @@ final class AdapterRegistry {
         case push
     }
     private(set) var stateSources: [UUID: StateSource] = [:]
+
+    /// Current connection phase for each printer. Drives UI indicators.
+    private(set) var connectionPhases: [UUID: ConnectionPhase] = [:]
 
     private var adapters: [UUID: PrinterAdapter] = [:]
     private var pumpTasks: [UUID: Task<Void, Never>] = [:]
@@ -67,15 +71,17 @@ final class AdapterRegistry {
                 guard let self else { return }
                 self.states[printerId] = newState
 
-                // Determine source based on connection mode for gateway adapters.
-                if let gwAdapter = adapter as? GatewayAdapter {
-                    switch gwAdapter.connectionMode {
-                    case .relay:
-                        self.stateSources[printerId] = .relay
-                    case .lan, .disconnected:
-                        self.stateSources[printerId] = .adapter
-                    }
-                } else {
+                // Update connection phase from the adapter.
+                let phase = adapter.connectionPhase
+                self.connectionPhases[printerId] = phase
+
+                // Derive legacy StateSource from the phase for backward compat.
+                switch phase {
+                case .connectedRelay:
+                    self.stateSources[printerId] = .relay
+                case .push:
+                    self.stateSources[printerId] = .push
+                default:
                     self.stateSources[printerId] = .adapter
                 }
 
@@ -114,6 +120,7 @@ final class AdapterRegistry {
             print("[AdapterRegistry] ingestPushState: using push data for \(localId) (stage=\(state.stage.rawValue), wasOffline=\(isOffline))")
             states[localId] = state
             stateSources[localId] = .push
+            connectionPhases[localId] = .push
         } else {
             print("[AdapterRegistry] ingestPushState: adapter is live (stage=\(currentState?.stage.rawValue ?? "nil")) — push ignored for \(localId)")
         }
@@ -136,6 +143,7 @@ final class AdapterRegistry {
         adapters[printerId] = nil
         states[printerId] = nil
         stateSources[printerId] = nil
+        connectionPhases[printerId] = nil
 
         // End any Live Activity for this printer so it doesn't linger
         // on the lock screen after the printer is removed.
@@ -181,44 +189,62 @@ final class AdapterRegistry {
         )
     }
 
+    /// Current connection phase for a printer.
+    func connectionPhase(for printer: Printer) -> ConnectionPhase {
+        connectionPhases[printer.id] ?? .disconnected()
+    }
+
     /// How the current state for a printer was obtained.
     func stateSource(for printer: Printer) -> StateSource {
         stateSources[printer.id] ?? .adapter
     }
 
+    /// Find a running GatewayAdapter for a specific gateway.
+    /// Used by views/services that need to send WebSocket requests to a gateway.
+    func gatewayAdapter(for gatewayId: String) -> GatewayAdapter? {
+        guard let cachedURL = gatewayURLCacheSnapshot.first(where: { $0.key == gatewayId })?.value else {
+            return nil
+        }
+        for (_, state) in states {
+            if let adapter = adapter(for: state.printerId) as? GatewayAdapter,
+               adapter.gatewayBaseURL == cachedURL {
+                return adapter
+            }
+        }
+        return nil
+    }
+
     // MARK: - Factory
 
     private func makeAdapter(for printer: Printer) -> PrinterAdapter? {
-        switch printer.adapterKind {
-        case .bambuLabA1Mini:
-            let accessCode = KeychainStore.get(
-                KeychainStore.bambuAccessCodeAccount(printerId: printer.id)
-            ) ?? ""
-            let config = BambuLanAdapter.Config(
-                host: printer.host ?? "",
-                serial: printer.serial ?? "",
-                accessCode: accessCode,
-                displayName: printer.displayName,
-                modelName: printer.modelName
-            )
-            return BambuLanAdapter(printerId: printer.id, config: config)
+        guard let gatewayId = printer.gatewayId,
+              let remotePrinterId = printer.remotePrinterId else { return nil }
+        guard let baseURL = gatewayBaseURL(gatewayId: gatewayId) else { return nil }
 
-        case .gateway:
-            guard let gatewayId = printer.gatewayId,
-                  let remotePrinterId = printer.remotePrinterId else { return nil }
-            // Look up the gateway's base URL from SwiftData via a simple
-            // scan of all Gateway records. (This is fine at small scale;
-            // a lookup cache can come later.)
-            guard let baseURL = gatewayBaseURL(gatewayId: gatewayId) else { return nil }
-            return GatewayAdapter(
-                printerId: remotePrinterId,
-                printerDisplayName: printer.displayName,
-                printerModelName: printer.modelName,
-                gatewayBaseURL: baseURL,
-                relayURL: gatewayRelayURL(gatewayId: gatewayId),
-                gatewayId: gatewayId
-            )
-        }
+        // Look up E2EE keys from Keychain for relay mode.
+        let sharedKey = loadSymmetricKey(
+            KeychainStore.gatewaySharedKeyAccount(gatewayId: gatewayId)
+        )
+        let groupKey = loadSymmetricKey(
+            KeychainStore.gatewayGroupKeyAccount(gatewayId: gatewayId)
+        )
+
+        // Device ID is the stable per-install identifier stored in UserDefaults.
+        let deviceId = UserDefaults.standard.string(
+            forKey: "com.clengineering.PrintParty.deviceId"
+        )
+
+        return GatewayAdapter(
+            printerId: remotePrinterId,
+            printerDisplayName: printer.displayName,
+            printerModelName: printer.modelName,
+            gatewayBaseURL: baseURL,
+            relayURL: gatewayRelayURL(gatewayId: gatewayId),
+            gatewayId: gatewayId,
+            sharedKey: sharedKey,
+            groupKey: groupKey,
+            deviceId: deviceId
+        )
     }
 
     /// Resolve a gateway's base URL by scanning registered gateways.
@@ -244,5 +270,13 @@ final class AdapterRegistry {
 
     private func gatewayRelayURL(gatewayId: String) -> URL? {
         gatewayRelayURLCache[gatewayId]
+    }
+
+    /// Load a base64-encoded 32-byte SymmetricKey from Keychain.
+    private func loadSymmetricKey(_ account: String) -> SymmetricKey? {
+        guard let base64 = KeychainStore.get(account),
+              let data = Data(base64Encoded: base64),
+              data.count == 32 else { return nil }
+        return SymmetricKey(data: data)
     }
 }

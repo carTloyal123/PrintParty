@@ -61,6 +61,9 @@ public enum ContentStateDecryptor {
 
         // Reconstruct the sealed box from the nonce + combined data.
         // ChaChaPoly.SealedBox(combined:) expects nonce (12) + ciphertext + tag (16).
+        // The combined data from the encryptor's .combined property already includes
+        // the nonce as its first 12 bytes, so dropFirst(12) strips the embedded nonce
+        // (we pass it separately), and suffix(16) extracts the Poly1305 tag.
         let sealedBox = try ChaChaPoly.SealedBox(
             nonce: ChaChaPoly.Nonce(data: nonceData),
             ciphertext: combinedData.dropFirst(12).dropLast(16),

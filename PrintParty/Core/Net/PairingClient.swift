@@ -52,6 +52,9 @@ struct PairingResult {
     let sharedKey: SymmetricKey
     /// Relay URL returned by the gateway for remote (non-LAN) access.
     let relayURL: String?
+    /// 32-byte group key for decrypting broadcast events (AES-256-GCM).
+    /// Nil if the gateway doesn't support group keys (older version).
+    let groupKey: Data?
 }
 
 enum PairingClient {
@@ -97,6 +100,8 @@ enum PairingClient {
         let gatewayName: String
         let gatewayPublicKey: String
         let relayURL: String?
+        let encryptedGroupKey: String?
+        let groupKeyNonce: String?
     }
 
     private struct ErrorResponse: Decodable {
@@ -162,11 +167,30 @@ enum PairingClient {
             outputByteCount: 32
         )
 
+        // Decrypt group key if provided by the gateway.
+        var groupKey: Data? = nil
+        if let encryptedGroupKeyB64 = pairResp.encryptedGroupKey,
+           let nonceB64 = pairResp.groupKeyNonce,
+           let ciphertextAndTag = Data(base64Encoded: encryptedGroupKeyB64),
+           let nonceData = Data(base64Encoded: nonceB64) {
+            do {
+                let nonce = try AES.GCM.Nonce(data: nonceData)
+                let tagSize = 16
+                let ct = ciphertextAndTag.prefix(ciphertextAndTag.count - tagSize)
+                let tag = ciphertextAndTag.suffix(tagSize)
+                let sealedBox = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ct, tag: tag)
+                groupKey = try AES.GCM.open(sealedBox, using: sharedKey)
+            } catch {
+                // Non-fatal: gateway may have sent an older format.
+            }
+        }
+
         return PairingResult(
             gatewayId: pairResp.gatewayId,
             gatewayName: pairResp.gatewayName,
             sharedKey: sharedKey,
-            relayURL: pairResp.relayURL
+            relayURL: pairResp.relayURL,
+            groupKey: groupKey
         )
     }
 

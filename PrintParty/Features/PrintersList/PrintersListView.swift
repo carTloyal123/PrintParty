@@ -11,7 +11,6 @@ struct PrintersListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Printer.createdAt) private var printers: [Printer]
 
-    @State private var showAddBambuSheet = false
     @State private var showAddGatewayPrinterSheet = false
     @State private var showSettingsSheet = false
 
@@ -30,9 +29,6 @@ struct PrintersListView: View {
             }
             .navigationTitle("Printers")
             .toolbar { toolbar }
-        }
-        .sheet(isPresented: $showAddBambuSheet) {
-            AddBambuPrinterSheet()
         }
         .sheet(isPresented: $showAddGatewayPrinterSheet) {
             AddGatewayPrinterSheet()
@@ -65,22 +61,25 @@ struct PrintersListView: View {
         ContentUnavailableView {
             Label("No Printers", systemImage: "printer")
         } description: {
-            Text("Add a printer to start tracking print progress with a Live Activity.")
-        } actions: {
-            VStack(spacing: 12) {
-                Button {
-                    showAddBambuSheet = true
-                } label: {
-                    Label("Add Bambu Lab A1 Mini", systemImage: "printer.fill")
-                }
-                .buttonStyle(.borderedProminent)
-
+            if gateways.isEmpty {
+                Text("Pair a gateway in Settings, then add printers from it.")
+            } else {
+                Text("Add a printer from your gateway to start tracking print progress.")
             }
+        } actions: {
+            Button {
+                showAddGatewayPrinterSheet = true
+            } label: {
+                Label("Add Printer via Gateway", systemImage: "server.rack")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(gateways.isEmpty)
         }
     }
 
     private var list: some View {
         List {
+            connectionSummarySection
             ForEach(printers) { printer in
                 NavigationLink {
                     PrinterDetailView(printer: printer)
@@ -90,6 +89,59 @@ struct PrintersListView: View {
             }
             .onDelete(perform: deletePrinters)
         }
+    }
+
+    // MARK: - Connection summary banner
+
+    @ViewBuilder
+    private var connectionSummarySection: some View {
+        let phases = printers.map { registry.connectionPhase(for: $0) }
+        let disconnectedCount = phases.filter {
+            if case .disconnected = $0 { return true }
+            return false
+        }.count
+        let connectingCount = phases.filter(\.isConnecting).count
+        let relayCount = phases.filter { $0 == .connectedRelay }.count
+        let pushCount = phases.filter { $0 == .push }.count
+
+        if disconnectedCount > 0 {
+            Section {
+                Label(
+                    "\(disconnectedCount) printer\(disconnectedCount == 1 ? "" : "s") offline",
+                    systemImage: "wifi.slash"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.red)
+            }
+        } else if connectingCount > 0 {
+            Section {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("\(connectingCount) printer\(connectingCount == 1 ? "" : "s") connecting\u{2026}")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else if pushCount > 0 {
+            Section {
+                Label(
+                    "\(pushCount) printer\(pushCount == 1 ? "" : "s") showing push data",
+                    systemImage: "antenna.radiowaves.left.and.right"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+            }
+        } else if relayCount > 0 {
+            Section {
+                Label(
+                    "\(relayCount) printer\(relayCount == 1 ? "" : "s") connected via relay",
+                    systemImage: "globe"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.blue)
+            }
+        }
+        // All connected via LAN → no banner
     }
 
     @ToolbarContentBuilder
@@ -102,22 +154,12 @@ struct PrintersListView: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                Button {
-                    showAddBambuSheet = true
-                } label: {
-                    Label("Bambu A1 Mini (LAN direct)", systemImage: "printer.fill")
-                }
-                Button {
-                    showAddGatewayPrinterSheet = true
-                } label: {
-                    Label("Via Gateway", systemImage: "server.rack")
-                }
-                .disabled(gateways.isEmpty)
-
+            Button {
+                showAddGatewayPrinterSheet = true
             } label: {
                 Label("Add Printer", systemImage: "plus")
             }
+            .disabled(gateways.isEmpty)
         }
     }
 
@@ -125,27 +167,30 @@ struct PrintersListView: View {
 
     /// Pre-populate the registry's gateway URL cache so the adapter factory
     /// can resolve gatewayId → baseURL without a SwiftData fetch.
+    /// Also feeds the GatewayHealthMonitor with the current gateway list.
     private func syncGatewayURLs() {
+        var monitorGateways: [GatewayHealthMonitor.GatewayInfo] = []
         for gw in gateways {
             if let url = URL(string: gw.baseURL) {
                 registry.cacheGatewayURL(gatewayId: gw.gatewayId, baseURL: url)
+                monitorGateways.append(GatewayHealthMonitor.GatewayInfo(
+                    gatewayId: gw.gatewayId,
+                    baseURL: url,
+                    relayURL: gw.relayURL.flatMap { URL(string: $0) }
+                ))
             }
             if let relayURLString = gw.relayURL,
                let relayURL = URL(string: relayURLString) {
                 registry.cacheGatewayRelayURL(gatewayId: gw.gatewayId, relayURL: relayURL)
             }
         }
+        GatewayHealthMonitor.shared.update(gateways: monitorGateways)
     }
 
     private func deletePrinters(at offsets: IndexSet) {
         for index in offsets {
             let printer = printers[index]
             registry.unregister(printerId: printer.id)
-            if printer.adapterKind == .bambuLabA1Mini {
-                KeychainStore.delete(
-                    KeychainStore.bambuAccessCodeAccount(printerId: printer.id)
-                )
-            }
             modelContext.delete(printer)
         }
     }

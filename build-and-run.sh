@@ -7,7 +7,7 @@ SCHEME="PrintParty"
 BUNDLE_ID="com.clengineering.PrintParty"
 CONFIGURATION="Debug"
 DERIVED_DATA="$PROJECT_DIR/.build-derived-data"
-BUILD_TIMEOUT=${BUILD_TIMEOUT:-180}
+BUILD_TIMEOUT=${BUILD_TIMEOUT:-120}
 
 # ── Colours ──────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -22,55 +22,27 @@ info()    { printf "${CYAN}%s${RESET}\n" "$*"; }
 success() { printf "${GREEN}%s${RESET}\n" "$*"; }
 error()   { printf "${RED}%s${RESET}\n" "$*" >&2; }
 header()  { printf "${BOLD}${YELLOW}%s${RESET}\n" "$*"; }
-warn()    { printf "${YELLOW}%s${RESET}\n" "$*"; }
 
 # ── Parse flags ──────────────────────────────────────────────────────
 VERBOSE=false
-SKIP_CLEAN=false
 for arg in "$@"; do
     case "$arg" in
-        -v|--verbose)     VERBOSE=true ;;
-        --no-clean)       SKIP_CLEAN=true ;;
+        -v|--verbose) VERBOSE=true ;;
         -h|--help)
             echo "Usage: $(basename "$0") [OPTIONS]"
             echo ""
             echo "Builds, installs, and launches PrintParty on a device or simulator."
-            echo "By default, kills stale build services and cleans caches before every"
-            echo "build to avoid the Xcode 26 SWBBuildService hang."
             echo ""
             echo "Options:"
             echo "  -v, --verbose   Show full xcodebuild output (no -quiet)"
-            echo "  --no-clean      Skip the pre-build clean (faster, but may hang)"
             echo "  -h, --help      Show this help"
             echo ""
             echo "Environment:"
-            echo "  BUILD_TIMEOUT   Build timeout in seconds (default: 180)"
+            echo "  BUILD_TIMEOUT   Build timeout in seconds (default: 120)"
             exit 0
             ;;
     esac
 done
-
-# ══════════════════════════════════════════════════════════════════════
-#  Pre-build clean (default: always, to avoid SWBBuildService hangs)
-# ══════════════════════════════════════════════════════════════════════
-
-if ! $SKIP_CLEAN; then
-    info "Cleaning build environment..."
-
-    # Kill any lingering build services that may be deadlocked
-    pkill -9 -f 'xcodebuild' 2>/dev/null || true
-    pkill -9 -f 'SWBBuildService' 2>/dev/null || true
-    pkill -9 -f 'XCBBuildService' 2>/dev/null || true
-    sleep 1
-
-    # Wipe derived data and Clang module cache
-    rm -rf "$DERIVED_DATA"
-    rm -rf "$(getconf DARWIN_USER_CACHE_DIR)org.llvm.clang" 2>/dev/null || true
-    rm -rf ~/Library/Developer/Xcode/DerivedData/PrintParty-* 2>/dev/null || true
-
-    success "Clean."
-    echo ""
-fi
 
 # ══════════════════════════════════════════════════════════════════════
 #  Gather all destinations (physical devices + simulators)
@@ -191,7 +163,6 @@ BUILD_ARGS=(
     -destination "id=$DEST_UDID"
     -derivedDataPath "$DERIVED_DATA"
     -allowProvisioningUpdates
-    COMPILATION_CACHING_ENABLED=YES
 )
 
 if ! $VERBOSE; then
@@ -201,73 +172,55 @@ fi
 BUILD_ARGS+=(build)
 
 # Unlock the login keychain so codesign can access signing identities.
-timeout 5 security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-
-# ── NOTE: Xcode 26 SWBBuildService deadlock ──────────────────────────
-# SWBBuildService has a mach-port deadlock that can cause builds to
-# hang indefinitely at the "ExecuteExternalTool clang" step.
-# This is a known Xcode 26 bug that cannot be worked around externally.
-# The timeout below will catch it and give a clear error message.
-# The build reliably works from interactive terminals — if it hangs
-# from scripts/CI, re-run interactively.
-BUILD_LOG=$(mktemp /tmp/xcodebuild-log.XXXXXX)
-BUILD_EXIT=0
-
-xcodebuild "${BUILD_ARGS[@]}" > "$BUILD_LOG" 2>&1 &
-BUILD_PID=$!
-
-# Show a progress counter while waiting
-SECONDS_WAITED=0
-while kill -0 "$BUILD_PID" 2>/dev/null; do
-    if [ "$SECONDS_WAITED" -ge "$BUILD_TIMEOUT" ]; then
-        echo ""
-        error "Build timed out after ${BUILD_TIMEOUT}s — xcodebuild appears stuck."
-        error "Killing build process tree..."
-        # Kill the entire process group
-        kill -9 -"$BUILD_PID" 2>/dev/null || kill -9 "$BUILD_PID" 2>/dev/null || true
-        pkill -9 -P "$BUILD_PID" 2>/dev/null || true
-        pkill -9 -f SWBBuildService 2>/dev/null || true
-        wait "$BUILD_PID" 2>/dev/null || true
-        echo ""
-        error "Last build output:"
-        tail -15 "$BUILD_LOG" >&2
-        echo ""
-        error "The Xcode build service (SWBBuildService) deadlocked."
-        error "This is a known Xcode 26 beta bug. Just re-run this script."
-        rm -f "$BUILD_LOG"
-        exit 75
-    fi
-    # Print progress
-    printf "\r  ${DIM}Building... (%ds)${RESET}  " "$SECONDS_WAITED"
-    sleep 2
-    SECONDS_WAITED=$((SECONDS_WAITED + 2))
-done
-printf "\r%40s\r" ""  # clear progress line
-
-wait "$BUILD_PID" || BUILD_EXIT=$?
-
-# Show build output on failure, or if verbose
-if [ "$BUILD_EXIT" -ne 0 ]; then
-    echo ""
-    if $VERBOSE; then
-        cat "$BUILD_LOG"
+# Only needed for physical-device builds (simulator uses ad-hoc signing).
+# Set KEYCHAIN_PASSWORD in your env to skip the interactive prompt.
+if [ "$DEST_TYPE" = "physical" ]; then
+    LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+    if [ -n "${KEYCHAIN_PASSWORD:-}" ]; then
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN" \
+            || error "Failed to unlock keychain with KEYCHAIN_PASSWORD."
     else
-        # Show just the errors
-        grep -A2 'error:' "$BUILD_LOG" | head -40
+        info "Unlocking login keychain for codesigning..."
+        if ! security unlock-keychain "$LOGIN_KEYCHAIN"; then
+            error "Could not unlock the login keychain."
+            error "Set KEYCHAIN_PASSWORD in your environment or unlock it manually."
+            exit 1
+        fi
     fi
+fi
+
+# Pick a timeout command. GNU coreutils ships `timeout`; on systems without it
+# (default macOS) we fall back to running xcodebuild directly.
+TIMEOUT_CMD=""
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="timeout ${BUILD_TIMEOUT}"
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD="gtimeout ${BUILD_TIMEOUT}"
+fi
+
+BUILD_EXIT=0
+START_TIME=$SECONDS
+if [ -n "$TIMEOUT_CMD" ]; then
+    $TIMEOUT_CMD xcodebuild "${BUILD_ARGS[@]}" || BUILD_EXIT=$?
+else
+    xcodebuild "${BUILD_ARGS[@]}" || BUILD_EXIT=$?
+fi
+ELAPSED=$((SECONDS - START_TIME))
+
+if [ "$BUILD_EXIT" -eq 124 ]; then
+    echo ""
+    error "Build timed out after ${BUILD_TIMEOUT}s."
+    exit 124
+elif [ "$BUILD_EXIT" -ne 0 ]; then
     echo ""
     error "Build failed (exit code $BUILD_EXIT)."
     if ! $VERBOSE; then
         error "Re-run with -v to see full build output."
     fi
-    rm -f "$BUILD_LOG"
     exit "$BUILD_EXIT"
-elif $VERBOSE; then
-    cat "$BUILD_LOG"
 fi
 
-rm -f "$BUILD_LOG"
-success "Build succeeded. (${SECONDS_WAITED}s)"
+success "Build succeeded. (${ELAPSED}s)"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════

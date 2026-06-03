@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import Crypto
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -34,6 +35,7 @@ actor PrinterService {
     private let eventLoopGroup: EventLoopGroup
     private let logger: Logger
     private var tunnelClient: RelayTunnelClient?
+    private var pairingService: PairingService?
 
     /// Per-printer reconnect attempt counter for exponential backoff.
     private var reconnectAttempts: [UUID: Int] = [:]
@@ -43,12 +45,17 @@ actor PrinterService {
     private var pushallRetryTasks: [UUID: Task<Void, Never>] = [:]
     private let store: PrinterStore
 
-    init(eventLoopGroup: EventLoopGroup, logger: Logger, relayURL: String? = nil, tunnelClient: RelayTunnelClient? = nil) {
+    init(eventLoopGroup: EventLoopGroup, logger: Logger, relayURL: String? = nil, tunnelClient: RelayTunnelClient? = nil, pairingService: PairingService? = nil) {
         self.eventLoopGroup = eventLoopGroup
         self.logger = logger
         self.relayURL = relayURL ?? Environment.get("RELAY_URL")
         self.store = PrinterStore(logger: logger)
         self.tunnelClient = tunnelClient
+        self.pairingService = pairingService
+    }
+
+    func setPairingService(_ service: PairingService) {
+        self.pairingService = service
     }
 
     /// Load saved printers from disk and start their MQTT connections.
@@ -113,6 +120,40 @@ actor PrinterService {
     func allStates() -> [UUID: PrintJobState] { states }
     func state(for printerId: UUID) -> PrintJobState? { states[printerId] }
     func registeredPrinters() -> [PrinterConfig] { Array(printers.values) }
+    func hasRegisteredPrinter(id: UUID) -> Bool { printers[id] != nil }
+
+    // MARK: - Printer commands
+
+    /// Send a command (pause/resume/cancel) to a printer via MQTT.
+    /// Throws if the printer is not registered or the command is invalid.
+    func sendCommand(printerId: UUID, command: String) async throws {
+        guard let config = printers[printerId] else {
+            throw PrinterCommandError.printerNotFound(printerId)
+        }
+        guard let client = mqttClients[printerId] else {
+            throw PrinterCommandError.notConnected(printerId)
+        }
+
+        let mqttPayload: [String: Any]
+        switch command {
+        case "pause":
+            mqttPayload = ["print": ["command": "pause", "sequence_id": "0"]]
+        case "resume":
+            mqttPayload = ["print": ["command": "resume", "sequence_id": "0"]]
+        case "cancel":
+            mqttPayload = ["print": ["command": "stop", "sequence_id": "0"]]
+        default:
+            throw PrinterCommandError.invalidCommand(command)
+        }
+
+        let requestTopic = "device/\(config.serial)/request"
+        guard let data = try? JSONSerialization.data(withJSONObject: mqttPayload) else {
+            throw PrinterCommandError.encodingFailed
+        }
+
+        logger.info("[\(config.displayName)] Sending command '\(command)' via MQTT")
+        await client.publish(topic: requestTopic, payload: data)
+    }
 
     // MARK: - Graceful shutdown (H-16)
 
@@ -294,12 +335,9 @@ actor PrinterService {
         let id = UUID()
         wsClients[id] = ws
         logger.info("WebSocket client connected (\(id))")
-        // Send current states immediately
+        // Send current states immediately as envelope-formatted messages
         for (_, state) in states {
-            if let data = try? JSONEncoder().encode(state),
-               let json = String(data: data, encoding: .utf8) {
-                ws.send(json)
-            }
+            sendStateEnvelope(to: ws, state: state)
         }
         return id
     }
@@ -309,22 +347,25 @@ actor PrinterService {
         logger.info("WebSocket client removed (\(id))")
     }
 
-    private func broadcastState(_ state: PrintJobState) {
-        guard let data = try? JSONEncoder().encode(state),
-              let json = String(data: data, encoding: .utf8) else { return }
+    /// Send a state to one WS client as a MessageEnvelope event.
+    private func sendStateEnvelope(to ws: WebSocket, state: PrintJobState) {
+        if let payloadData = try? JSONEncoder().encode(state) {
+            let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
+            if let envData = try? JSONEncoder().encode(envelope),
+               let envJson = String(data: envData, encoding: .utf8) {
+                ws.send(envJson)
+            }
+        }
+    }
 
+    private func broadcastState(_ state: PrintJobState) {
         // WebSocket broadcast — clean up closed or errored connections (H-12)
         var closedIds: [UUID] = []
         for (id, ws) in wsClients {
             if ws.isClosed {
                 closedIds.append(id)
             } else {
-                let promise = ws.eventLoop.makePromise(of: Void.self)
-                ws.send(json, promise: promise)
-                promise.futureResult.whenFailure { [logger, weak self] error in
-                    logger.warning("WebSocket send failed for \(id): \(error)")
-                    Task { await self?.removeWebSocket(id: id) }
-                }
+                sendStateEnvelope(to: ws, state: state)
             }
         }
         for id in closedIds {
@@ -332,9 +373,26 @@ actor PrinterService {
             logger.debug("Cleaned up closed WebSocket (\(id))")
         }
 
-        // Tunnel relay: send to the relay WebSocket if connected.
+        // Tunnel relay: send encrypted event via tunnel.
         if let tunnelClient {
-            Task { await tunnelClient.send(text: json) }
+            Task { [pairingService, logger] in
+                if let pairingService,
+                   let groupKey = await pairingService.getGroupKey() {
+                    // Encrypt the event envelope with the group key and prepend broadcast tag.
+                    if let payloadData = try? JSONEncoder().encode(state) {
+                        let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
+                        if let frame = try? FrameCrypto.encryptFrame(envelope: envelope, key: groupKey) {
+                            await tunnelClient.send(text: "*:" + frame)
+                        } else {
+                            logger.warning("[Tunnel] Failed to encrypt broadcast frame")
+                        }
+                    }
+                } else {
+                    // No group key (no paired devices yet) — skip tunnel broadcast.
+                    // Relay tunnel should only carry encrypted data.
+                    logger.warning("[Tunnel] No group key available, skipping tunnel broadcast (no paired devices?)")
+                }
+            }
         }
 
         // APNs relay push
@@ -429,4 +487,22 @@ extension Application {
 
 extension Request {
     var printerService: PrinterService { application.printerService }
+}
+
+// MARK: - Command errors
+
+enum PrinterCommandError: Error, LocalizedError {
+    case printerNotFound(UUID)
+    case notConnected(UUID)
+    case invalidCommand(String)
+    case encodingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .printerNotFound(let id): return "Printer not found: \(id)"
+        case .notConnected(let id): return "Printer not connected: \(id)"
+        case .invalidCommand(let cmd): return "Invalid command: \(cmd)"
+        case .encodingFailed: return "Failed to encode MQTT payload"
+        }
+    }
 }

@@ -393,66 +393,32 @@ final class LiveActivityCoordinator {
     /// ActivityKit would fail to decode it. E2EE for push updates requires
     /// changing ContentState to a wrapper type that handles decryption —
     /// planned for a future milestone.
+    ///
+    /// Tries the WebSocket `activities.register` request via the adapter.
     private func forwardPushToken(printerId: UUID, token: String) async {
-        guard let baseURL = gatewayBaseURL(for: printerId) else {
-            print("[LiveActivityCoordinator] forwardPushToken: no gateway base URL for \(printerId) — token NOT forwarded")
+        guard let adapter = AdapterRegistry.shared.adapter(for: printerId) as? GatewayAdapter,
+              adapter.connectionMode != .disconnected else {
+            print("[LiveActivityCoordinator] forwardPushToken: no connected adapter for \(printerId) — token NOT forwarded")
             return
         }
-        let url = baseURL.appendingPathComponent("v1/activities")
-
-        print("[LiveActivityCoordinator] forwarding push token to \(url) (plaintext — E2EE for push not yet supported)")
-
-        struct Body: Encodable {
-            let printerId: UUID
-            let pushToken: String
-            let sharedKey: String?
-        }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONEncoder().encode(Body(printerId: printerId, pushToken: token, sharedKey: nil))
-        req.timeoutInterval = 10
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 200 {
-                    print("[LiveActivityCoordinator] push token forwarded to gateway successfully")
-                } else {
-                    let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                    print("[LiveActivityCoordinator] push token forward got HTTP \(http.statusCode): \(body)")
-                }
+            struct WSBody: Encodable {
+                let printerId: UUID
+                let pushToken: String
             }
+            let _ = try await adapter.request(
+                "activities.register",
+                payload: WSBody(printerId: printerId, pushToken: token)
+            )
+            print("[LiveActivityCoordinator] push token forwarded via WS successfully")
         } catch {
-            print("[LiveActivityCoordinator] push token forward failed: \(error)")
+            print("[LiveActivityCoordinator] WS activities.register failed: \(error)")
         }
     }
 
     private func isGatewayPrinter(_ printerId: UUID) -> Bool {
         AdapterRegistry.shared.adapter(for: printerId) is GatewayAdapter
-    }
-
-    private func gatewayBaseURL(for printerId: UUID) -> URL? {
-        guard let adapter = AdapterRegistry.shared.adapter(for: printerId) as? GatewayAdapter else {
-            return nil
-        }
-        return adapter.gatewayBaseURL
-    }
-
-    private func gatewaySharedKey(for printerId: UUID) -> String? {
-        guard let adapter = AdapterRegistry.shared.adapter(for: printerId) as? GatewayAdapter else {
-            return nil
-        }
-        let registry = AdapterRegistry.shared
-        for (gatewayId, cachedURL) in registry.gatewayURLCacheSnapshot {
-            if cachedURL == adapter.gatewayBaseURL {
-                return KeychainStore.get(
-                    KeychainStore.gatewaySharedKeyAccount(gatewayId: gatewayId)
-                )
-            }
-        }
-        return nil
     }
 
     private func update(activity: Activity<PrintPartyActivityAttributes>, state: PrintJobState) {

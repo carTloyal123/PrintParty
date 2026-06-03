@@ -35,6 +35,10 @@ struct PairingRoutes: RouteCollection {
         let gatewayPublicKey: String
         let relayURL: String?
         let pairedAt: Date
+        /// Base64-encoded AES-256-GCM ciphertext+tag of the 32-byte group key.
+        let encryptedGroupKey: String?
+        /// Base64-encoded 12-byte nonce used for the group key encryption.
+        let groupKeyNonce: String?
     }
 
     @Sendable
@@ -92,7 +96,17 @@ final class PairingRateLimiter: Sendable {
 
     func checkAndRecord(ip: String, now: Date = Date()) -> Bool {
         lock.withLock {
+            // Sweep all expired entries to prevent unbounded memory growth.
             let cutoff = now.addingTimeInterval(-windowSeconds)
+            for (key, dates) in attempts {
+                let valid = dates.filter { $0 > cutoff }
+                if valid.isEmpty {
+                    attempts[key] = nil
+                } else {
+                    attempts[key] = valid
+                }
+            }
+
             var history = attempts[ip, default: []].filter { $0 > cutoff }
             if history.count >= maxAttempts {
                 return false
@@ -109,12 +123,5 @@ struct PairingRateLimiterKey: StorageKey {
 }
 
 extension Application {
-    var pairingRateLimiter: PairingRateLimiter {
-        if let existing = storage[PairingRateLimiterKey.self] {
-            return existing
-        }
-        let limiter = PairingRateLimiter()
-        storage[PairingRateLimiterKey.self] = limiter
-        return limiter
-    }
+    var pairingRateLimiter: PairingRateLimiter { storage[PairingRateLimiterKey.self]! }
 }

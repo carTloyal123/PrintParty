@@ -28,5 +28,12 @@ let package = Package(
                 .enableUpcomingFeature("BareSlashRegexLiterals"),
             ]
         ),
+        .testTarget(
+            name: "PrintPartyGatewayTests",
+            dependencies: [
+                "PrintPartyGateway",
+                .product(name: "Crypto", package: "swift-crypto"),
+            ]
+        ),
     ]
 )

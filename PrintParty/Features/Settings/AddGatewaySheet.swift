@@ -181,6 +181,14 @@ struct AddGatewaySheet: View {
                 for: KeychainStore.gatewaySharedKeyAccount(gatewayId: result.gatewayId)
             )
 
+            // Store group key in Keychain if the gateway provided one.
+            if let groupKey = result.groupKey {
+                KeychainStore.set(
+                    groupKey.base64EncodedString(),
+                    for: KeychainStore.gatewayGroupKeyAccount(gatewayId: result.gatewayId)
+                )
+            }
+
             // Persist gateway record.
             let gateway = Gateway(
                 gatewayId: result.gatewayId,

@@ -47,7 +47,9 @@ enum ContentStateEncryptor {
         let nonce = ChaChaPoly.Nonce()
         let sealed = try ChaChaPoly.seal(plaintext, using: key, nonce: nonce)
 
-        // combined = ciphertext + tag (what the decryptor needs alongside the nonce)
+        // .combined includes nonce (12 bytes) + ciphertext + Poly1305 tag (16 bytes).
+        // The decryptor uses dropFirst(12) to strip the embedded nonce, then
+        // dropLast(16) for ciphertext and suffix(16) for the tag.
         return EncryptedEnvelope(
             printerId: state.printerId.uuidString,
             v: 1,

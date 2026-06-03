@@ -60,8 +60,17 @@ func configurerelay(_ app: Application) async throws {
         }
     }
 
-    app.storage[APNSClientKey.self] = apnsClient
+    if let apnsClient {
+        app.storage[APNSClientKey.self] = apnsClient
+    }
     app.storage[APNSTopicKey.self] = topic
+
+    // Gateway registry for API key validation.
+    let registryPath = Environment.get("REGISTRY_PATH") ?? "/data/gateway-registry.json"
+    let registry = GatewayRegistry(persistencePath: registryPath, logger: app.logger)
+    registry.load()
+    app.storage[GatewayRegistryKey.self] = registry
+    app.storage[RegistrationRateLimiterKey.self] = RegistrationRateLimiter()
 
     // Tunnel broker for WebSocket relay between gateways and iOS clients.
     app.storage[TunnelBrokerKey.self] = TunnelBroker(logger: app.logger)
@@ -71,6 +80,7 @@ func configurerelay(_ app: Application) async throws {
 
     try app.register(collection: RelayHealthRoutes())
     try app.register(collection: PushRoutes())
+    try app.register(collection: RegistrationRoutes())
     try app.register(collection: TunnelRoutes())
 
     let bindHost = app.http.server.configuration.hostname
@@ -89,11 +99,11 @@ func configurerelay(_ app: Application) async throws {
     """)
 }
 
-struct APNSClientKey: StorageKey { typealias Value = RelayAPNSClient? }
+struct APNSClientKey: StorageKey { typealias Value = RelayAPNSClient }
 struct APNSTopicKey: StorageKey { typealias Value = String }
 
 extension Application {
-    var apnsClient: RelayAPNSClient? { storage[APNSClientKey.self] ?? nil }
+    var apnsClient: RelayAPNSClient? { storage[APNSClientKey.self] }
     var apnsTopic: String { storage[APNSTopicKey.self]! }
 }
 extension Request {

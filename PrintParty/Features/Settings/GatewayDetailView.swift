@@ -7,7 +7,7 @@
 //
 //  - See which printers are on the gateway and their current status
 //  - Add a gateway printer to this device with one tap
-//  - Remove a printer from the gateway entirely (stops MQTT, deletes config)
+//  - Remove a printer from the gateway entirely
 //
 
 import SwiftUI
@@ -23,11 +23,11 @@ struct GatewayDetailView: View {
     @State private var remotePrinters: [RemotePrinter] = []
     @State private var isFetching = false
     @State private var fetchError: String?
-    @State private var connectionStatus: ConnectionStatus = .unknown
     @State private var printerToDelete: RemotePrinter?
 
-    enum ConnectionStatus: Equatable {
-        case unknown, checking, online(version: String), offline(reason: String)
+    private var monitor: GatewayHealthMonitor { .shared }
+    private var connectionStatus: GatewayConnectionStatus {
+        monitor.status(for: gateway.gatewayId)
     }
 
     struct RemotePrinter: Decodable, Identifiable {
@@ -55,10 +55,12 @@ struct GatewayDetailView: View {
         .navigationTitle(gateway.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
-            await refresh()
+            GatewayHealthMonitor.shared.refresh()
+            await fetchPrinters()
         }
         .task {
-            await refresh()
+            GatewayHealthMonitor.shared.refresh()
+            await fetchPrinters()
         }
         .alert("Remove Printer", isPresented: showDeleteAlert, presenting: printerToDelete) { printer in
             Button("Remove from Gateway", role: .destructive) {
@@ -81,18 +83,34 @@ struct GatewayDetailView: View {
 
     private var gatewayInfoSection: some View {
         Section {
-            LabeledContent("Status") {
+            LabeledContent("LAN") {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(statusColor)
+                        .fill(lanStatusColor)
                         .frame(width: 8, height: 8)
-                    statusText
+                    lanStatusText
+                }
+            }
+            LabeledContent("Relay") {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(relayStatusColor)
+                        .frame(width: 8, height: 8)
+                    relayStatusText
                 }
             }
             LabeledContent("URL") {
                 Text(gateway.baseURL)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+            }
+            if let relayURL = gateway.relayURL {
+                LabeledContent("Relay URL") {
+                    Text(relayURL)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             LabeledContent("Paired") {
                 Text(gateway.pairedAt.formatted(date: .abbreviated, time: .shortened))
@@ -104,21 +122,58 @@ struct GatewayDetailView: View {
         }
     }
 
-    private var statusColor: Color {
+    private var lanStatusColor: Color {
         switch connectionStatus {
-        case .unknown, .checking: return .gray
-        case .online: return .green
-        case .offline: return .red
+        case .lanOnline:         return .green
+        case .checking:          return .gray
+        case .unknown:           return .gray
+        default:                 return .red
         }
     }
 
     @ViewBuilder
-    private var statusText: some View {
+    private var lanStatusText: some View {
         switch connectionStatus {
-        case .unknown: Text("Unknown").foregroundStyle(.secondary)
-        case .checking: ProgressView().controlSize(.small)
-        case .online(let v): Text("Online (v\(v))").foregroundStyle(.green)
-        case .offline(let r): Text(r).foregroundStyle(.red).lineLimit(1)
+        case .lanOnline(let v):
+            if v != "live" {
+                Text("Online (v\(v))").foregroundStyle(.green)
+            } else {
+                Text("Online").foregroundStyle(.green)
+            }
+        case .checking, .unknown:
+            ProgressView().controlSize(.small)
+        default:
+            Text("Unreachable").foregroundStyle(.red)
+        }
+    }
+
+    private var relayStatusColor: Color {
+        switch connectionStatus {
+        case .lanOfflineRelayOnline:  return .blue
+        case .lanOfflineRelayUnknown: return .gray
+        case .lanOnline:             return .secondary // not needed when LAN is up
+        default:
+            return gateway.relayURL == nil ? .secondary : .red
+        }
+    }
+
+    @ViewBuilder
+    private var relayStatusText: some View {
+        if gateway.relayURL == nil {
+            Text("Not configured").foregroundStyle(.secondary)
+        } else {
+            switch connectionStatus {
+            case .lanOnline:
+                Text("Available").foregroundStyle(.secondary)
+            case .lanOfflineRelayOnline:
+                Text("Connected").foregroundStyle(.blue)
+            case .lanOfflineRelayUnknown:
+                ProgressView().controlSize(.small)
+            case .offline:
+                Text("Unreachable").foregroundStyle(.red)
+            case .checking, .unknown:
+                ProgressView().controlSize(.small)
+            }
         }
     }
 
@@ -229,51 +284,25 @@ struct GatewayDetailView: View {
 
     // MARK: - Actions
 
-    private func refresh() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await checkHealth() }
-            group.addTask { await fetchPrinters() }
-        }
-    }
-
-    private func checkHealth() async {
-        guard let url = URL(string: gateway.baseURL) else {
-            connectionStatus = .offline(reason: "Invalid URL")
-            return
-        }
-        connectionStatus = .checking
-        do {
-            let resp = try await PairingClient.ping(baseURL: url)
-            if resp.gatewayId != gateway.gatewayId {
-                connectionStatus = .offline(reason: "Gateway was reset — re-pair required")
-            } else {
-                connectionStatus = .online(version: resp.version)
-            }
-        } catch {
-            connectionStatus = .offline(reason: error.localizedDescription)
-        }
-    }
+    /// Empty payload for WS requests that need no parameters.
+    private struct EmptyPayload: Encodable {}
 
     private func fetchPrinters() async {
-        guard let baseURL = URL(string: gateway.baseURL) else { return }
-
         isFetching = true
         fetchError = nil
         defer { isFetching = false }
 
-        let url = baseURL.appendingPathComponent("v1/printers")
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 10
+        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+              adapter.connectionMode != .disconnected else {
+            fetchError = "Not connected to gateway."
+            return
+        }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                fetchError = "Gateway returned an error."
-                return
-            }
+            let data = try await adapter.request("printers.list", payload: EmptyPayload())
             remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
         } catch {
-            fetchError = "Could not reach gateway."
+            fetchError = "Could not fetch printers: \(error.localizedDescription)"
         }
     }
 
@@ -296,18 +325,15 @@ struct GatewayDetailView: View {
     }
 
     private func deleteRemotePrinter(_ printer: RemotePrinter) async {
-        guard let baseURL = URL(string: gateway.baseURL) else { return }
+        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+              adapter.connectionMode != .disconnected else { return }
 
-        let url = baseURL.appendingPathComponent("v1/printers/\(printer.id.uuidString)")
-        var req = URLRequest(url: url)
-        req.httpMethod = "DELETE"
-        req.timeoutInterval = 10
+        struct RemovePayload: Encodable {
+            let printerId: UUID
+        }
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                return
-            }
+            let _ = try await adapter.request("printers.remove", payload: RemovePayload(printerId: printer.id))
 
             // Remove from remote list
             remotePrinters.removeAll { $0.id == printer.id }

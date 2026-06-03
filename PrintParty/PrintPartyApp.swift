@@ -16,6 +16,9 @@ struct PrintPartyApp: App {
     /// tries to read state from it.
     private let adapterRegistry = AdapterRegistry.shared
 
+    /// Initializes the gateway health monitor so it starts tracking immediately.
+    private let gatewayHealthMonitor = GatewayHealthMonitor.shared
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Printer.self,

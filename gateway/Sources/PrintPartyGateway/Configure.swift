@@ -55,27 +55,44 @@ func configure(_ app: Application) async throws {
         relayURL: relayURL
     )
     app.storage[PairingServiceKey.self] = pairingService
+    app.storage[PairingRateLimiterKey.self] = PairingRateLimiter()
     await pairingService.loadSavedPairings()
+    await pairingService.loadGroupKey()
 
     // Create relay tunnel client if RELAY_URL is configured.
     var tunnelClient: RelayTunnelClient? = nil
     if let relayURL, !relayURL.isEmpty {
-        tunnelClient = RelayTunnelClient(relayURL: relayURL, gatewayId: gatewayId, eventLoopGroup: app.eventLoopGroup, logger: app.logger)
+        tunnelClient = RelayTunnelClient(relayURL: relayURL, gatewayId: gatewayId, gatewayName: gatewayName, eventLoopGroup: app.eventLoopGroup, logger: app.logger)
     }
+
+    // Create MessageRouter for WebSocket request/response dispatch.
+    let messageRouter = MessageRouter(
+        gatewayId: gatewayId,
+        gatewayName: gatewayName,
+        relayURL: relayURL,
+        logger: app.logger
+    )
+    app.storage[MessageRouterKey.self] = messageRouter
 
     let printerService = PrinterService(
         eventLoopGroup: app.eventLoopGroup,
         logger: app.logger,
         relayURL: relayURL,
-        tunnelClient: tunnelClient
+        tunnelClient: tunnelClient,
+        pairingService: pairingService
     )
     app.storage[PrinterServiceKey.self] = printerService
 
     // Load any previously registered printers from disk and reconnect.
     await printerService.loadSavedPrinters()
 
-    // Start the tunnel client after PrinterService is ready.
+    // Inject dependencies into tunnel client and start it.
     if let tunnelClient {
+        await tunnelClient.setDependencies(
+            messageRouter: messageRouter,
+            printerService: printerService,
+            pairingService: pairingService
+        )
         Task { await tunnelClient.start() }
     }
 

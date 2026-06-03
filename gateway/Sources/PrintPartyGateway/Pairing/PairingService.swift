@@ -26,6 +26,10 @@ actor PairingService {
     private let identityStore: GatewayIdentityStore
     private let logger: Logger
 
+    /// 32-byte group key shared with all paired devices for broadcast encryption.
+    private var groupKey: SymmetricKey?
+    private let groupKeyPath: String
+
     // MARK: - Pairing state
 
     private struct CodeEntry {
@@ -42,6 +46,15 @@ actor PairingService {
 
     private var current: CodeEntry
     private var pairings: [String: Pairing] = [:]
+
+    /// Pending group key rotations for each paired device, keyed by deviceId.
+    /// Created when a device is unpaired and the group key is rotated.
+    /// Consumed when the device next connects (sent as a key.rotate event).
+    struct PendingKeyRotation: Sendable {
+        let encryptedKey: Data
+        let nonce: Data
+    }
+    private(set) var pendingKeyRotations: [String: PendingKeyRotation] = [:]
 
     private static let codeLifetime: TimeInterval = 300 // 5 minutes
 
@@ -63,6 +76,135 @@ actor PairingService {
             code: Self.generateCode(),
             expiresAt: Date().addingTimeInterval(Self.codeLifetime)
         )
+
+        let dataDir = ProcessInfo.processInfo.environment["PRINTPARTY_DATA_DIR"]
+            ?? (NSHomeDirectory() + "/.printparty")
+        self.groupKeyPath = dataDir + "/group-key.bin"
+    }
+
+    // MARK: - Group key management
+
+    /// Loads the group key from disk if it exists.
+    func loadGroupKey() {
+        guard FileManager.default.fileExists(atPath: groupKeyPath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: groupKeyPath)),
+              data.count == 32 else {
+            return
+        }
+        groupKey = SymmetricKey(data: data)
+        logger.info("Loaded group key from disk")
+    }
+
+    /// Generates a new 32-byte group key and persists it.
+    private func generateGroupKey() -> SymmetricKey {
+        let key = SymmetricKey(size: .bits256)
+        groupKey = key
+        persistGroupKey(key)
+        logger.info("Generated new group key")
+        return key
+    }
+
+    private func persistGroupKey(_ key: SymmetricKey) {
+        let data = key.withUnsafeBytes { Data($0) }
+        do {
+            let dir = (groupKeyPath as NSString).deletingLastPathComponent
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try data.write(to: URL(fileURLWithPath: groupKeyPath), options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: groupKeyPath
+            )
+        } catch {
+            logger.error("Failed to persist group key: \(error)")
+        }
+    }
+
+    /// Encrypts the group key with a device's shared key using AES-256-GCM.
+    /// Returns (ciphertext, nonce) both base64-encoded.
+    private func encryptGroupKey(with sharedKey: SymmetricKey) throws -> (encryptedGroupKey: String, groupKeyNonce: String) {
+        let gk = groupKey ?? generateGroupKey()
+        let groupKeyData = gk.withUnsafeBytes { Data($0) }
+        let nonce = AES.GCM.Nonce()
+        let sealed = try AES.GCM.seal(groupKeyData, using: sharedKey, nonce: nonce)
+        let ciphertext = sealed.ciphertext + sealed.tag
+        return (
+            encryptedGroupKey: ciphertext.base64EncodedString(),
+            groupKeyNonce: Data(nonce).base64EncodedString()
+        )
+    }
+
+    // MARK: - Group key rotation
+
+    /// Rotate the group key: generate a new one, persist it, and create
+    /// pending rotations for each remaining paired device.
+    func rotateGroupKey() async {
+        let newKey = generateGroupKey()
+        logger.info("Group key rotated")
+
+        // Create encrypted copies for each remaining device.
+        pendingKeyRotations.removeAll()
+        for (deviceId, pairing) in pairings {
+            do {
+                let groupKeyData = newKey.withUnsafeBytes { Data($0) }
+                let nonce = AES.GCM.Nonce()
+                let sealed = try AES.GCM.seal(groupKeyData, using: pairing.sharedKey, nonce: nonce)
+                let ciphertextAndTag = sealed.ciphertext + sealed.tag
+                pendingKeyRotations[deviceId] = PendingKeyRotation(
+                    encryptedKey: ciphertextAndTag,
+                    nonce: Data(nonce)
+                )
+                logger.debug("Queued key rotation for device \(deviceId)")
+            } catch {
+                logger.error("Failed to encrypt rotated group key for \(deviceId): \(error)")
+            }
+        }
+    }
+
+    /// Unpair a device and rotate the group key so the removed device
+    /// cannot decrypt future broadcast events.
+    func unpairDevice(deviceId: String) async {
+        guard pairings[deviceId] != nil else {
+            logger.warning("Attempted to unpair unknown device \(deviceId)")
+            return
+        }
+
+        let deviceName = pairings[deviceId]?.deviceName ?? deviceId
+        pairings[deviceId] = nil
+        persistPairings()
+        logger.info("Unpaired device \(deviceName) (\(deviceId))")
+
+        // Rotate group key if there are remaining devices.
+        if !pairings.isEmpty {
+            await rotateGroupKey()
+        } else {
+            // No devices left — just clear the group key.
+            groupKey = nil
+            try? FileManager.default.removeItem(atPath: groupKeyPath)
+            logger.info("Cleared group key (no remaining devices)")
+        }
+    }
+
+    /// Returns and clears the pending key rotation for a specific device.
+    func consumePendingKeyRotation(forDevice deviceId: String) -> PendingKeyRotation? {
+        pendingKeyRotations.removeValue(forKey: deviceId)
+    }
+
+    // MARK: - Key accessors (for MessageRouter / RelayTunnelClient)
+
+    /// Returns the group key used for broadcast encryption, or nil if none exists yet.
+    func getGroupKey() -> SymmetricKey? {
+        groupKey
+    }
+
+    /// Returns all paired device shared keys as [(deviceId, sharedKey)].
+    /// Used for try-each decryption of incoming relay frames.
+    func pairedDeviceKeys() -> [(deviceId: String, sharedKey: SymmetricKey)] {
+        pairings.map { ($0.key, $0.value.sharedKey) }
+    }
+
+    /// Returns the shared key for a specific device, if paired.
+    func sharedKey(forDevice deviceId: String) -> SymmetricKey? {
+        pairings[deviceId]?.sharedKey
     }
 
     // MARK: - Code management
@@ -97,8 +239,8 @@ actor PairingService {
 
     private static func generateCode() -> String {
         // 5 random bytes = 40 bits = exactly 8 base32 characters.
-        var bytes = [UInt8](repeating: 0, count: 5)
-        for i in 0..<5 { bytes[i] = UInt8.random(in: 0...255) }
+        let key = SymmetricKey(size: .bits64) // smallest size; we only use 5 bytes
+        let bytes: [UInt8] = key.withUnsafeBytes { Array($0.prefix(5)) }
         return Base32.encode(bytes)
     }
 
@@ -149,12 +291,26 @@ actor PairingService {
 
         logger.info("Paired device \(deviceName) (\(deviceId))")
 
+        // Encrypt the group key for this device. Generate one if this is
+        // the first pairing.
+        var encryptedGroupKey: String? = nil
+        var groupKeyNonce: String? = nil
+        do {
+            let encrypted = try encryptGroupKey(with: derivedKey)
+            encryptedGroupKey = encrypted.encryptedGroupKey
+            groupKeyNonce = encrypted.groupKeyNonce
+        } catch {
+            logger.error("Failed to encrypt group key for device \(deviceId): \(error)")
+        }
+
         return PairingRoutes.PairResponse(
             gatewayId: gatewayId,
             gatewayName: gatewayName,
             gatewayPublicKey: gatewayPrivateKey.publicKey.rawRepresentation.base64EncodedString(),
             relayURL: relayURL,
-            pairedAt: Date()
+            pairedAt: Date(),
+            encryptedGroupKey: encryptedGroupKey,
+            groupKeyNonce: groupKeyNonce
         )
     }
 
@@ -192,14 +348,20 @@ actor PairingService {
         identityStore.savePairings(stored)
     }
 
-    /// Constant-time-ish comparison. Codes are 8 ASCII chars so the
-    /// difference between this and a real CT-compare is negligible.
+    /// Constant-time comparison. Iterates over the longer of the two
+    /// inputs so that differing lengths do not produce a measurably
+    /// shorter execution.
     private func codeMatches(_ candidate: String) -> Bool {
         let a = Array(current.code.utf8)
         let b = Array(candidate.utf8)
-        guard a.count == b.count else { return false }
+        let length = max(a.count, b.count)
         var diff: UInt8 = 0
-        for i in 0..<a.count { diff |= a[i] ^ b[i] }
+        for i in 0..<length {
+            let aByte: UInt8 = i < a.count ? a[i] : 0
+            let bByte: UInt8 = i < b.count ? b[i] : 0
+            diff |= aByte ^ bByte
+        }
+        diff |= UInt8(truncatingIfNeeded: a.count ^ b.count)
         return diff == 0
     }
 }

@@ -1,12 +1,12 @@
 //
+//
 //  GatewaySyncService.swift
 //  PrintParty
 //
-//  Fetches the list of printers registered on a gateway and creates local
-//  Printer records for any that don't already exist. Called after pairing
-//  a new gateway and on app launch for existing gateways.
+//  Fetches the list of printers registered on a gateway via the WebSocket
+//  `printers.list` request and creates local Printer records for any that
+//  don't already exist. Called after pairing a new gateway and on app launch.
 //
-
 import Foundation
 import SwiftData
 import os
@@ -24,6 +24,9 @@ enum GatewaySyncService {
         let progressPercent: Double
     }
 
+    /// Empty payload for WS requests that need no parameters.
+    private struct EmptyPayload: Encodable {}
+
     /// Fetch printers from a gateway and create local Printer records for
     /// any that aren't already tracked. Returns the number of new printers added.
     @discardableResult
@@ -36,22 +39,8 @@ enum GatewaySyncService {
             return 0
         }
 
-        let url = baseURL.appendingPathComponent("v1/printers")
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 10
-
-        let remotePrinters: [RemotePrinter]
-        do {
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                log.warning("GatewaySync: \(gateway.displayName) returned non-200")
-                return 0
-            }
-            remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
-        } catch {
-            log.warning("GatewaySync: failed to fetch printers from \(gateway.displayName): \(error.localizedDescription)")
-            return 0
-        }
+        let remotePrinters = await fetchRemotePrinters(gateway: gateway, baseURL: baseURL)
+        guard let remotePrinters else { return 0 }
 
         guard !remotePrinters.isEmpty else {
             log.info("GatewaySync: \(gateway.displayName) has no printers registered")
@@ -103,6 +92,30 @@ enum GatewaySyncService {
     ) async {
         for gateway in gateways {
             await syncPrinters(gateway: gateway, modelContext: modelContext)
+        }
+    }
+
+    // MARK: - Private
+
+    /// Fetch printers via the WebSocket `printers.list` request.
+    private static func fetchRemotePrinters(
+        gateway: Gateway,
+        baseURL: URL
+    ) async -> [RemotePrinter]? {
+        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+              adapter.connectionMode != .disconnected else {
+            log.info("GatewaySync: no connected adapter for \(gateway.displayName) — skipping sync")
+            return nil
+        }
+
+        do {
+            let data = try await adapter.request("printers.list", payload: EmptyPayload())
+            let printers = try JSONDecoder().decode([RemotePrinter].self, from: data)
+            log.info("GatewaySync: fetched \(printers.count) printers via WS for \(gateway.displayName)")
+            return printers
+        } catch {
+            log.warning("GatewaySync: printers.list failed for \(gateway.displayName): \(error.localizedDescription)")
+            return nil
         }
     }
 }

@@ -123,18 +123,11 @@ struct SettingsView: View {
             AdapterRegistry.shared.unregister(printerId: printer.id)
         }
 
-        // 3. Delete Keychain items for each gateway and Bambu printer
+        // 3. Delete Keychain items for each gateway
         for gateway in gateways {
             KeychainStore.delete(
                 KeychainStore.gatewaySharedKeyAccount(gatewayId: gateway.gatewayId)
             )
-        }
-        for printer in allPrinters {
-            if printer.adapterKind == .bambuLabA1Mini {
-                KeychainStore.delete(
-                    KeychainStore.bambuAccessCodeAccount(printerId: printer.id)
-                )
-            }
         }
 
         // 4. Delete all SwiftData records
@@ -150,19 +143,16 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Gateway Row with live health check
+// MARK: - Gateway Row driven by GatewayHealthMonitor
 
 private struct GatewayRow: View {
     let gateway: Gateway
 
-    enum ConnectionStatus: Equatable {
-        case unknown
-        case checking
-        case online(version: String)
-        case offline(reason: String)
-    }
+    private var monitor: GatewayHealthMonitor { .shared }
 
-    @State private var status: ConnectionStatus = .unknown
+    private var status: GatewayConnectionStatus {
+        monitor.status(for: gateway.gatewayId)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -188,7 +178,6 @@ private struct GatewayRow: View {
             .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
-        .task { await checkHealth() }
     }
 
     // MARK: - Status indicators
@@ -196,16 +185,8 @@ private struct GatewayRow: View {
     @ViewBuilder
     private var statusDot: some View {
         Circle()
-            .fill(dotColor)
+            .fill(status.dotColor)
             .frame(width: 10, height: 10)
-    }
-
-    private var dotColor: Color {
-        switch status {
-        case .unknown, .checking: return .gray
-        case .online: return .green
-        case .offline: return .red
-        }
     }
 
     @ViewBuilder
@@ -213,13 +194,23 @@ private struct GatewayRow: View {
         switch status {
         case .unknown:
             EmptyView()
-        case .checking:
+        case .checking, .lanOfflineRelayUnknown:
             ProgressView()
                 .controlSize(.small)
-        case .online(let version):
-            Text("v\(version)")
-                .font(.caption2.monospaced())
-                .foregroundStyle(.green)
+        case .lanOnline(let version):
+            if version != "live" {
+                Text("v\(version)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        case .lanOfflineRelayOnline:
+            Label("Relay", systemImage: "globe")
+                .font(.caption2)
+                .foregroundStyle(.blue)
         case .offline:
             Image(systemName: "wifi.slash")
                 .font(.caption)
@@ -231,39 +222,27 @@ private struct GatewayRow: View {
     private var statusDetail: some View {
         switch status {
         case .unknown:
-            Text("Checking…")
+            Text("Checking\u{2026}")
         case .checking:
-            Text("Connecting…")
-        case .online:
-            Text("Connected")
-                .foregroundStyle(.green)
+            Text("Connecting\u{2026}")
+        case .lanOnline(let version):
+            if version != "live" {
+                Text("Connected")
+                    .foregroundStyle(.green)
+            } else {
+                Text("Connected (via adapter)")
+                    .foregroundStyle(.green)
+            }
+        case .lanOfflineRelayOnline:
+            Text("LAN offline \u{2022} Relay connected")
+                .foregroundStyle(.blue)
+        case .lanOfflineRelayUnknown:
+            Text("LAN offline \u{2022} Checking relay\u{2026}")
+                .foregroundStyle(.secondary)
         case .offline(let reason):
             Text(reason)
                 .foregroundStyle(.red)
                 .lineLimit(1)
-        }
-    }
-
-    // MARK: - Health check
-
-    private func checkHealth() async {
-        guard let url = URL(string: gateway.baseURL) else {
-            status = .offline(reason: "Invalid URL")
-            return
-        }
-        status = .checking
-        do {
-            let resp = try await PairingClient.ping(baseURL: url)
-            // Verify the gateway ID matches our pairing. After a gateway
-            // reset (--clear-cache), the gateway gets a new identity and
-            // our pairing is invalid even though the server is reachable.
-            if resp.gatewayId != gateway.gatewayId {
-                status = .offline(reason: "Gateway was reset — re-pair required")
-            } else {
-                status = .online(version: resp.version)
-            }
-        } catch {
-            status = .offline(reason: error.localizedDescription)
         }
     }
 }
