@@ -140,8 +140,12 @@ func configure(_ app: Application) async throws {
 
 /// Returns the list of hosts the gateway can be reached at, for use in the
 /// startup banner. Always includes localhost. Reads GATEWAY_HOSTS env var
-/// (comma-separated) as an override, else auto-detects non-loopback IPv4
-/// addresses from local network interfaces.
+/// (comma-separated) as an override, else auto-detects:
+///   - Non-loopback IPv4 addresses from local network interfaces.
+///   - `<hostname>.local` if the container hostname looks like a real name
+///     (most home networks resolve `.local` via mDNS/avahi). Set the
+///     container's `hostname:` in docker-compose to match the host's mDNS
+///     name (e.g. `hostname: ccc` for `ccc.local`).
 private func resolvePairingHosts() -> [String] {
     var hosts: [String] = []
 
@@ -152,6 +156,9 @@ private func resolvePairingHosts() -> [String] {
             .filter { !$0.isEmpty })
     } else {
         hosts.append(contentsOf: enumerateLocalIPv4Addresses())
+        if let mdns = mDNSHostname() {
+            hosts.append(mdns)
+        }
     }
 
     // Always include localhost as a last-resort entry.
@@ -159,6 +166,23 @@ private func resolvePairingHosts() -> [String] {
         hosts.append("localhost")
     }
     return hosts
+}
+
+/// Returns `<hostname>.local` if the system hostname looks like a real name.
+/// Returns nil for Docker-default container IDs (12 hex chars), already-qualified
+/// names, or empty hostnames. This lets users reach the gateway via mDNS/avahi.
+private func mDNSHostname() -> String? {
+    var buffer = [CChar](repeating: 0, count: 256)
+    guard gethostname(&buffer, buffer.count) == 0 else { return nil }
+    let host = String(cString: buffer)
+    guard !host.isEmpty else { return nil }
+    // Skip Docker default container IDs (12-char lowercase hex).
+    if host.count == 12, host.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) {
+        return nil
+    }
+    // If the hostname already contains a dot, treat as fully qualified.
+    if host.contains(".") { return host }
+    return host + ".local"
 }
 
 /// Enumerate non-loopback IPv4 addresses from local network interfaces.
