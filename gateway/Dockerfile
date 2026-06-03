@@ -9,17 +9,9 @@ COPY Tests/ Tests/
 # Resolve dependencies first (cacheable layer)
 RUN swift package resolve
 
-# Build release binary with static Swift stdlib.
-# On x86-64, use -march=x86-64 to target baseline ISA and avoid SIGILL
-# on older CPUs (e.g. Ivy Bridge) that lack AVX2/BMI2.
-ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      swift build -c release --static-swift-stdlib \
-        -Xcc -march=x86-64 -Xlinker -lstdc++ ; \
-    else \
-      swift build -c release --static-swift-stdlib \
-        -Xlinker -lstdc++ ; \
-    fi
+# Build release binary with static Swift stdlib
+RUN swift build -c release --static-swift-stdlib \
+    -Xlinker -lstdc++
 
 # ── Runtime stage (~30MB slim + libcurl for URLSession on Linux) ──
 FROM ubuntu:22.04
@@ -34,8 +26,11 @@ RUN useradd --create-home printparty \
 USER printparty
 
 COPY --from=build /build/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
+# Copy swift-backtrace from the build image for crash diagnostics
+COPY --from=build /usr/bin/swift-backtrace /usr/bin/swift-backtrace
 
 ENV PRINTPARTY_DATA_DIR=/data
+ENV SWIFT_BACKTRACE=enable=yes,demangle=yes
 EXPOSE 8080
 
 ENTRYPOINT ["printparty-gateway"]
