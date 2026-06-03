@@ -363,18 +363,22 @@ actor PrinterService {
     }
 
     private func broadcastState(_ state: PrintJobState) {
-        // WebSocket broadcast — clean up closed or errored connections (H-12)
-        var closedIds: [UUID] = []
+        // Prepare envelope JSON once for all clients.
+        guard let payloadData = try? JSONEncoder().encode(state) else { return }
+        let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
+        guard let envData = try? JSONEncoder().encode(envelope),
+              let envJson = String(data: envData, encoding: .utf8) else { return }
+
+        // WebSocket broadcast — dispatch through each WS's event loop to
+        // avoid NIOLoopBound precondition failures (actor context != NIO EL).
         for (id, ws) in wsClients {
-            if ws.isClosed {
-                closedIds.append(id)
-            } else {
-                sendStateEnvelope(to: ws, state: state)
+            ws.eventLoop.execute { [weak self, logger] in
+                if ws.isClosed {
+                    Task { await self?.removeWebSocket(id: id) }
+                } else {
+                    ws.send(envJson)
+                }
             }
-        }
-        for id in closedIds {
-            wsClients[id] = nil
-            logger.debug("Cleaned up closed WebSocket (\(id))")
         }
 
         // Tunnel relay: send encrypted event via tunnel.
