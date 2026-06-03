@@ -27,7 +27,7 @@ USER printparty
 
 COPY --from=build /build/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
 # Copy swift-backtrace from the build image for crash diagnostics
-COPY --from=build /usr/bin/swift-backtrace /usr/bin/swift-backtrace
+COPY --from=build /usr/libexec/swift/linux/swift-backtrace /usr/libexec/swift/linux/swift-backtrace
 
 ENV PRINTPARTY_DATA_DIR=/data
 ENV SWIFT_BACKTRACE=enable=yes,demangle=yes
