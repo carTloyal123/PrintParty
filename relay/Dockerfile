@@ -4,6 +4,7 @@ FROM swift:6.3.2-jammy AS build
 WORKDIR /build
 COPY Package.swift Package.resolved* ./
 COPY Sources/ Sources/
+COPY Tests/ Tests/
 
 # Resolve dependencies first (cacheable layer)
 RUN swift package resolve
