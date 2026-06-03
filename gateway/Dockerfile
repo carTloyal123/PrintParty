@@ -9,8 +9,11 @@ COPY Tests/ Tests/
 # Resolve dependencies first (cacheable layer)
 RUN swift package resolve
 
-# Build release binary with static Swift stdlib
+# Build release binary with static Swift stdlib.
+# -march=x86-64: target baseline x86-64 ISA to avoid SIGILL on older CPUs
+# (e.g. Ivy Bridge) that lack AVX2/BMI2.
 RUN swift build -c release --static-swift-stdlib \
+    -Xcc -march=x86-64 \
     -Xlinker -lstdc++
 
 # ── Runtime stage (~30MB slim + libcurl for URLSession on Linux) ──
