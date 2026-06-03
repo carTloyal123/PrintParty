@@ -106,14 +106,7 @@ func configure(_ app: Application) async throws {
     let bindPort = app.http.server.configuration.port
 
     // Build the list of URLs the iOS app can use to reach this gateway.
-    //
-    // Priority:
-    //   1. GATEWAY_HOSTS env var (comma-separated). Use this when running in
-    //      Docker bridge mode where the container can't see the host's LAN IP.
-    //      Example: GATEWAY_HOSTS=192.168.1.42,my-server.local
-    //   2. Auto-detected non-loopback IPv4 addresses from network interfaces.
-    //      Useful when running on the host directly or in host networking mode.
-    //   3. Always include localhost as a fallback.
+    // See `resolvePairingHosts()` for the full discovery logic.
     let pairingHosts = resolvePairingHosts()
     let pairingURLs = pairingHosts.map { "http://\($0):\(bindPort)" }
     let pairingURLList = pairingURLs.map { "   \($0)" }.joined(separator: "\n")
@@ -138,33 +131,28 @@ func configure(_ app: Application) async throws {
 
 // MARK: - Pairing host discovery
 
-/// Returns the list of hosts the gateway can be reached at, for use in the
-/// startup banner. Always includes localhost. Reads GATEWAY_HOSTS env var
-/// (comma-separated) as an override, else auto-detects:
-///   - Non-loopback IPv4 addresses from local network interfaces.
+/// Returns every host the gateway can plausibly be reached at, for use in
+/// the startup banner. We don't try to be clever about which of these are
+/// "really" useful — we just enumerate everything we can find and let the
+/// human pick the right one. Includes:
+///   - Every non-loopback IPv4 address from local network interfaces.
+///     In Docker bridge mode this returns the container's internal IP
+///     (e.g. 172.18.x.x), not the host's LAN IP — use mDNS or set
+///     `network_mode: host` in compose for that case.
 ///   - `<hostname>.local` if the container hostname looks like a real name
 ///     (most home networks resolve `.local` via mDNS/avahi). Set the
-///     container's `hostname:` in docker-compose to match the host's mDNS
-///     name (e.g. `hostname: ccc` for `ccc.local`).
+///     container's `hostname:` in docker-compose to match the host's
+///     mDNS name (e.g. `hostname: ccc` for `ccc.local`).
+///   - `localhost` as a last-resort entry.
 private func resolvePairingHosts() -> [String] {
     var hosts: [String] = []
 
-    if let env = Environment.get("GATEWAY_HOSTS"), !env.isEmpty {
-        hosts.append(contentsOf: env
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty })
-    } else {
-        hosts.append(contentsOf: enumerateLocalIPv4Addresses())
-    }
+    hosts.append(contentsOf: enumerateLocalIPv4Addresses())
 
-    // mDNS hostname is always added when valid. The user has to explicitly
-    // set `hostname:` in compose for this to be useful, so it's intentional.
     if let mdns = mDNSHostname(), !hosts.contains(mdns) {
         hosts.append(mdns)
     }
 
-    // Always include localhost as a last-resort entry.
     if !hosts.contains("localhost") {
         hosts.append("localhost")
     }
