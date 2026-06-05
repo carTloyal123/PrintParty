@@ -202,13 +202,9 @@ final class AdapterRegistry {
     /// Find a running GatewayAdapter for a specific gateway.
     /// Used by views/services that need to send WebSocket requests to a gateway.
     func gatewayAdapter(for gatewayId: String) -> GatewayAdapter? {
-        guard let cachedURL = gatewayURLCacheSnapshot.first(where: { $0.key == gatewayId })?.value else {
-            return nil
-        }
-        for (_, state) in states {
-            if let adapter = adapter(for: state.printerId) as? GatewayAdapter,
-               adapter.gatewayBaseURL == cachedURL {
-                return adapter
+        for (_, adapter) in adapters {
+            if let gw = adapter as? GatewayAdapter, gw.gatewayId == gatewayId {
+                return gw
             }
         }
         return nil

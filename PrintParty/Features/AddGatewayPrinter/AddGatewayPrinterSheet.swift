@@ -304,18 +304,39 @@ struct AddGatewayPrinterSheet: View {
         fetchError = nil
         defer { isFetching = false }
 
-        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-              adapter.connectionMode != .disconnected else {
-            fetchError = "Not connected to gateway."
+        // Try WebSocket first (if an adapter is connected for this gateway).
+        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+           adapter.connectionMode != .disconnected {
+            do {
+                let data = try await adapter.request("printers.list", payload: EmptyPayload())
+                remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
+                return
+            } catch {
+                // Fall through to HTTP.
+            }
+        }
+
+        // Fall back to HTTP — needed when no printers are added yet
+        // (no adapter exists) or when the adapter is still connecting.
+        guard let baseURL = URL(string: gateway.baseURL) else {
+            fetchError = "Invalid gateway URL."
             remotePrinters = []
             return
         }
+        let url = baseURL.appendingPathComponent("v1/printers")
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
 
         do {
-            let data = try await adapter.request("printers.list", payload: EmptyPayload())
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                fetchError = "Gateway returned an error."
+                remotePrinters = []
+                return
+            }
             remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
         } catch {
-            fetchError = "Could not fetch printers: \(error.localizedDescription)"
+            fetchError = "Could not reach gateway."
             remotePrinters = []
         }
     }
@@ -350,37 +371,60 @@ struct AddGatewayPrinterSheet: View {
             accessCode: accessCode.trimmingCharacters(in: .whitespaces)
         )
 
-        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-              adapter.connectionMode != .disconnected else {
-            lastError = "Not connected to gateway."
+        // Try WebSocket first.
+        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+           adapter.connectionMode != .disconnected {
+            do {
+                let data = try await adapter.request("printers.register", payload: body)
+                let resp = try JSONDecoder().decode(RegisterResponse.self, from: data)
+                finishRegistration(gateway: gateway, body: body, printerId: resp.printerId)
+                return
+            } catch {
+                // Fall through to HTTP.
+            }
+        }
+
+        // Fall back to HTTP.
+        guard let baseURL = URL(string: gateway.baseURL) else {
+            lastError = "Invalid gateway URL."
             return
         }
 
         do {
-            let data = try await adapter.request("printers.register", payload: body)
-            let resp = try JSONDecoder().decode(RegisterResponse.self, from: data)
+            let url = baseURL.appendingPathComponent("v1/printers")
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.timeoutInterval = 10
+            req.httpBody = try JSONEncoder().encode(body)
 
-            // Cache gateway URL in the registry so the adapter factory can find it.
-            if let baseURL = URL(string: gateway.baseURL) {
-                AdapterRegistry.shared.cacheGatewayURL(
-                    gatewayId: gateway.gatewayId,
-                    baseURL: baseURL
-                )
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                lastError = "Gateway returned an error."
+                return
             }
-
-            // Create local Printer record.
-            let printer = Printer(
-                displayName: body.displayName,
-                modelName: body.modelName,
-                gatewayId: gateway.gatewayId,
-                remotePrinterId: resp.printerId
-            )
-            modelContext.insert(printer)
-            dismiss()
-
+            let resp = try JSONDecoder().decode(RegisterResponse.self, from: data)
+            finishRegistration(gateway: gateway, body: body, printerId: resp.printerId)
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    private func finishRegistration(gateway: Gateway, body: RegisterRequest, printerId: UUID) {
+        if let baseURL = URL(string: gateway.baseURL) {
+            AdapterRegistry.shared.cacheGatewayURL(
+                gatewayId: gateway.gatewayId,
+                baseURL: baseURL
+            )
+        }
+        let printer = Printer(
+            displayName: body.displayName,
+            modelName: body.modelName,
+            gatewayId: gateway.gatewayId,
+            remotePrinterId: printerId
+        )
+        modelContext.insert(printer)
+        dismiss()
     }
 }
 

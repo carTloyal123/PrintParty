@@ -292,17 +292,37 @@ struct GatewayDetailView: View {
         fetchError = nil
         defer { isFetching = false }
 
-        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-              adapter.connectionMode != .disconnected else {
-            fetchError = "Not connected to gateway."
-            return
+        // Try WebSocket first (if an adapter is connected for this gateway).
+        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+           adapter.connectionMode != .disconnected {
+            do {
+                let data = try await adapter.request("printers.list", payload: EmptyPayload())
+                remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
+                return
+            } catch {
+                // Fall through to HTTP.
+            }
         }
 
+        // Fall back to HTTP — needed when no printers are added yet
+        // (no adapter exists) or when the adapter is still connecting.
+        guard let baseURL = URL(string: gateway.baseURL) else {
+            fetchError = "Invalid gateway URL."
+            return
+        }
+        let url = baseURL.appendingPathComponent("v1/printers")
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+
         do {
-            let data = try await adapter.request("printers.list", payload: EmptyPayload())
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                fetchError = "Gateway returned an error."
+                return
+            }
             remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
         } catch {
-            fetchError = "Could not fetch printers: \(error.localizedDescription)"
+            fetchError = "Could not reach gateway."
         }
     }
 
@@ -325,35 +345,55 @@ struct GatewayDetailView: View {
     }
 
     private func deleteRemotePrinter(_ printer: RemotePrinter) async {
-        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-              adapter.connectionMode != .disconnected else { return }
-
         struct RemovePayload: Encodable {
             let printerId: UUID
         }
 
-        do {
-            let _ = try await adapter.request("printers.remove", payload: RemovePayload(printerId: printer.id))
+        var success = false
 
-            // Remove from remote list
-            remotePrinters.removeAll { $0.id == printer.id }
-
-            // Also remove the local Printer record if one exists
-            let printerId = printer.id
-            let gatewayId = gateway.gatewayId
-            let descriptor = FetchDescriptor<Printer>(
-                predicate: #Predicate {
-                    $0.gatewayId == gatewayId && $0.remotePrinterId == printerId
-                }
-            )
-            if let locals = try? modelContext.fetch(descriptor) {
-                for local in locals {
-                    AdapterRegistry.shared.unregister(printerId: local.id)
-                    modelContext.delete(local)
-                }
+        // Try WebSocket first.
+        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
+           adapter.connectionMode != .disconnected {
+            do {
+                let _ = try await adapter.request("printers.remove", payload: RemovePayload(printerId: printer.id))
+                success = true
+            } catch {
+                // Fall through to HTTP.
             }
-        } catch {
-            // Silently fail — the printer list will refresh on pull-to-refresh
+        }
+
+        // Fall back to HTTP.
+        if !success, let baseURL = URL(string: gateway.baseURL) {
+            let url = baseURL.appendingPathComponent("v1/printers/\(printer.id.uuidString)")
+            var req = URLRequest(url: url)
+            req.httpMethod = "DELETE"
+            req.timeoutInterval = 10
+            do {
+                let (_, response) = try await URLSession.shared.data(for: req)
+                if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                    success = true
+                }
+            } catch {}
+        }
+
+        guard success else { return }
+
+        // Remove from remote list
+        remotePrinters.removeAll { $0.id == printer.id }
+
+        // Also remove the local Printer record if one exists
+        let printerId = printer.id
+        let gatewayId = gateway.gatewayId
+        let descriptor = FetchDescriptor<Printer>(
+            predicate: #Predicate {
+                $0.gatewayId == gatewayId && $0.remotePrinterId == printerId
+            }
+        )
+        if let locals = try? modelContext.fetch(descriptor) {
+            for local in locals {
+                AdapterRegistry.shared.unregister(printerId: local.id)
+                modelContext.delete(local)
+            }
         }
     }
 }

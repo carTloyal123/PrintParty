@@ -104,7 +104,11 @@ actor RelayTunnelClient {
     // MARK: - Send
 
     func send(text: String) {
-        guard let ws else { return }
+        guard let ws else {
+            logger.debug("[Tunnel] send() called but no WebSocket connection")
+            return
+        }
+        logger.debug("[Tunnel] Sending tunnel frame (\(text.count) chars)")
         ws.eventLoop.execute {
             guard !ws.isClosed else { return }
             ws.send(text)
@@ -317,12 +321,15 @@ actor RelayTunnelClient {
         var matchedDeviceId: String?
         var matchedKey: SymmetricKey?
 
+        logger.debug("[Tunnel] Attempting decryption for client \(clientId)")
+
         if let cachedDeviceId = clientDeviceMap[clientId],
            let key = await pairingService.sharedKey(forDevice: cachedDeviceId) {
             do {
                 decryptedEnvelope = try FrameCrypto.decryptFrame(frame: encryptedFrame, key: key)
                 matchedDeviceId = cachedDeviceId
                 matchedKey = key
+                logger.debug("[Tunnel] Decrypted with cached device key for \(cachedDeviceId)")
             } catch {
                 // Cached mapping stale, try all keys.
                 clientDeviceMap[clientId] = nil
@@ -332,6 +339,7 @@ actor RelayTunnelClient {
         // If cache miss, try each paired device's key.
         if decryptedEnvelope == nil {
             let deviceKeys = await pairingService.pairedDeviceKeys()
+            logger.debug("[Tunnel] Cache miss for client \(clientId), trying \(deviceKeys.count) paired device key(s)")
             for (deviceId, key) in deviceKeys {
                 do {
                     let envelope = try FrameCrypto.decryptFrame(frame: encryptedFrame, key: key)

@@ -176,11 +176,20 @@ actor PrinterService {
         }
         mqttClients.removeAll()
 
-        // Close all WebSocket connections
+        // Close all WebSocket connections — dispatch through each WS's
+        // event loop to avoid NIOLoopBound precondition failures.
         for (id, ws) in wsClients {
-            if !ws.isClosed {
-                try? await ws.close()
+            do {
+                let closeFuture: EventLoopFuture<Void> = ws.eventLoop.flatSubmit {
+                    guard !ws.isClosed else {
+                        return ws.eventLoop.makeSucceededVoidFuture()
+                    }
+                    return ws.close()
+                }
+                try await closeFuture.get()
                 logger.debug("Closed WebSocket (\(id))")
+            } catch {
+                logger.debug("Error closing WebSocket (\(id)): \(error)")
             }
         }
         wsClients.removeAll()
@@ -351,6 +360,7 @@ actor PrinterService {
     /// Must dispatch through the WebSocket's event loop to avoid
     /// NIOLoopBound precondition failures.
     private func sendStateEnvelope(to ws: WebSocket, state: PrintJobState) {
+        logger.debug("[WS] Sending state envelope for printer \(state.printerId) to client")
         if let payloadData = try? JSONEncoder().encode(state) {
             let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
             if let envData = try? JSONEncoder().encode(envelope),
@@ -363,6 +373,7 @@ actor PrinterService {
     }
 
     private func broadcastState(_ state: PrintJobState) {
+        logger.debug("[WS] Broadcasting state for printer \(state.printerId) to \(wsClients.count) client(s)")
         // Prepare envelope JSON once for all clients.
         guard let payloadData = try? JSONEncoder().encode(state) else { return }
         let envelope = MessageEnvelope.event(method: "stream.state", payload: payloadData)
@@ -374,6 +385,7 @@ actor PrinterService {
         for (id, ws) in wsClients {
             ws.eventLoop.execute { [weak self, logger] in
                 if ws.isClosed {
+                    logger.debug("[WS] Client \(id) found closed during broadcast, removing")
                     Task { await self?.removeWebSocket(id: id) }
                 } else {
                     ws.send(envJson)

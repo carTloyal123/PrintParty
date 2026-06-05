@@ -24,8 +24,12 @@ struct StreamRoutes: RouteCollection {
 
     @Sendable
     func handleStream(req: Request, ws: WebSocket) async {
-        let id = await req.printerService.addWebSocket(ws)
-        req.logger.info("WebSocket stream connected (\(id))")
+        // Capture everything we need BEFORE any `await`, while we are
+        // still on the NIO event loop that owns this WebSocket.
+        let printerService = req.printerService
+        let messageRouter = req.messageRouter
+        let pairingService = req.application.pairing
+        let logger = req.logger
 
         // H-13: Enable periodic ping to detect dead connections.
         let pingTask = Task { [eventLoop = ws.eventLoop] in
@@ -38,13 +42,12 @@ struct StreamRoutes: RouteCollection {
             }
         }
 
-        // Register onText handler to receive envelope requests.
-        let printerService = req.printerService
-        let messageRouter = req.messageRouter
-        let pairingService = req.application.pairing
-        let logger = req.logger
+        // Register WebSocket handlers BEFORE any `await` — we are still
+        // on the NIO event loop here, so onText/onClose are safe to call.
+        logger.debug("[Stream] Registering WebSocket handlers (on NIO EL)")
 
         ws.onText { ws, text in
+            logger.debug("[Stream] Received text frame (\(text.prefix(80))...)")
             Task {
                 await handleEnvelopeRequest(
                     text: text, ws: ws,
@@ -56,11 +59,29 @@ struct StreamRoutes: RouteCollection {
             }
         }
 
+        // Use a Sendable box so onClose can read the id once addWebSocket
+        // completes below. The box is only mutated before onClose fires
+        // (WebSocket is still open), so no data race is possible.
+        final class WebSocketIdBox: @unchecked Sendable {
+            var id: UUID?
+        }
+        let idBox = WebSocketIdBox()
+
         ws.onClose.whenComplete { _ in
             pingTask.cancel()
-            req.logger.info("WebSocket stream disconnected (\(id))")
-            Task { await req.printerService.removeWebSocket(id: id) }
+            let id = idBox.id
+            if let id {
+                logger.info("WebSocket stream disconnected (\(id))")
+                Task { await printerService.removeWebSocket(id: id) }
+            } else {
+                logger.info("WebSocket stream disconnected (before registration completed)")
+            }
         }
+
+        // NOW it is safe to await — handler registration is done.
+        let id = await printerService.addWebSocket(ws)
+        idBox.id = id
+        logger.info("WebSocket stream connected (\(id))")
     }
 }
 
@@ -81,6 +102,7 @@ private func handleEnvelopeRequest(
 
     do {
         let envelope = try JSONDecoder().decode(MessageEnvelope.self, from: data)
+        logger.debug("[Stream] Routing envelope: method=\(envelope.method), id=\(envelope.id ?? "nil")")
 
         // Check for pending key rotation for this device. On LAN the
         // envelope is plaintext so we can read deviceId directly.
@@ -108,6 +130,7 @@ private func handleEnvelopeRequest(
         let responseData = try JSONEncoder().encode(response)
         if let responseJson = String(data: responseData, encoding: .utf8) {
             ws.eventLoop.execute { ws.send(responseJson) }
+            logger.debug("[Stream] Sent response for method=\(envelope.method), id=\(envelope.id ?? "nil")")
         }
     } catch {
         logger.warning("[Stream] Failed to decode envelope: \(error)")
