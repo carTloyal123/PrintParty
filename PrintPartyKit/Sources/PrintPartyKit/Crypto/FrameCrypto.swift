@@ -5,11 +5,15 @@
 //  AES-256-GCM encryption/decryption for MessageEnvelope frames.
 //  Wire format: "<base64(nonce)>.<base64(ciphertext+tag)>"
 //
-//  Uses swift-crypto (import Crypto), NOT CryptoKit.
+//  Uses CryptoKit on Apple platforms, swift-crypto elsewhere.
 //
 
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#else
 import Crypto
+#endif
 
 public enum FrameCryptoError: Error, CustomStringConvertible {
     case invalidFrameFormat

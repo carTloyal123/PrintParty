@@ -15,6 +15,7 @@
 //
 
 import Foundation
+import PrintPartyKit
 import Vapor
 
 struct StreamRoutes: RouteCollection {

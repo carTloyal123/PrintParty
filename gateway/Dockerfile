@@ -2,9 +2,17 @@
 FROM swift:6.3.2-jammy AS build
 
 WORKDIR /build
-COPY Package.swift Package.resolved* ./
-COPY Sources/ Sources/
-COPY Tests/ Tests/
+
+# Copy shared PrintPartyKit package first (referenced as ../PrintPartyKit
+# in Package.swift — the Docker build context is the repo root).
+COPY PrintPartyKit/ PrintPartyKit/
+
+# Copy gateway package manifest and sources.
+COPY gateway/Package.swift gateway/Package.resolved* gateway/
+COPY gateway/Sources/ gateway/Sources/
+COPY gateway/Tests/ gateway/Tests/
+
+WORKDIR /build/gateway
 
 # Resolve dependencies first (cacheable layer)
 RUN swift package resolve
@@ -25,7 +33,7 @@ RUN useradd --create-home printparty \
     && chown printparty:printparty /data
 USER printparty
 
-COPY --from=build /build/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
+COPY --from=build /build/gateway/.build/release/printparty-gateway /usr/local/bin/printparty-gateway
 
 ENV PRINTPARTY_DATA_DIR=/data
 EXPOSE 8080

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import PrintPartyKit
 
 enum BambuTelemetryMapper {
 

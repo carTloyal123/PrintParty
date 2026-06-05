@@ -8,6 +8,7 @@
 import XCTest
 import Crypto
 import NIOPosix
+import PrintPartyKit
 @testable import PrintPartyGateway
 
 final class MessageRouterTests: XCTestCase {

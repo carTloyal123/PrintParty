@@ -1,13 +1,12 @@
 //
 //  MessageEnvelopeTests.swift
-//  printparty-gateway
+//  PrintPartyKit
 //
 //  Tests for MessageEnvelope model: factories, JSON round-trip, payload encoding.
 //
 
 import XCTest
-import PrintPartyKit
-@testable import PrintPartyGateway
+@testable import PrintPartyKit
 
 final class MessageEnvelopeTests: XCTestCase {
 

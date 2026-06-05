@@ -8,6 +8,7 @@
 
 import XCTest
 import Crypto
+import PrintPartyKit
 @testable import PrintPartyGateway
 
 final class FrameCryptoTests: XCTestCase {

@@ -12,6 +12,7 @@ import Crypto
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import PrintPartyKit
 import Vapor
 
 actor PrinterService {
@@ -344,6 +345,9 @@ actor PrinterService {
         let id = UUID()
         wsClients[id] = ws
         logger.info("WebSocket client connected (\(id))")
+        // Send a welcome event so the iOS client's isConnected flag
+        // gets set immediately, even before printer states arrive.
+        sendWelcomeEnvelope(to: ws)
         // Send current states immediately as envelope-formatted messages
         for (_, state) in states {
             sendStateEnvelope(to: ws, state: state)
@@ -354,6 +358,28 @@ actor PrinterService {
     func removeWebSocket(id: UUID) {
         wsClients[id] = nil
         logger.info("WebSocket client removed (\(id))")
+    }
+
+    /// Send a state to one WS client as a MessageEnvelope event.
+    /// Must dispatch through the WebSocket's event loop to avoid
+    /// NIOLoopBound precondition failures.
+    private func sendWelcomeEnvelope(to ws: WebSocket) {
+        struct WelcomePayload: Encodable {
+            let gatewayId: String
+            let printerCount: Int
+        }
+        // Use a simple identifier — we don't have gatewayId here,
+        // so just send printerCount.
+        let payload = WelcomePayload(gatewayId: "connected", printerCount: states.count)
+        if let data = try? JSONEncoder().encode(payload) {
+            let envelope = MessageEnvelope.event(method: "gateway.welcome", payload: data)
+            if let envData = try? JSONEncoder().encode(envelope),
+               let envJson = String(data: envData, encoding: .utf8) {
+                ws.eventLoop.execute {
+                    ws.send(envJson)
+                }
+            }
+        }
     }
 
     /// Send a state to one WS client as a MessageEnvelope event.

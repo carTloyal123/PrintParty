@@ -15,6 +15,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import PrintPartyKit
 import Vapor
 import Crypto
 import NIOCore

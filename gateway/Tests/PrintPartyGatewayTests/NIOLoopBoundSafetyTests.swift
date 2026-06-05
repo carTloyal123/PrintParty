@@ -8,6 +8,7 @@
 //
 
 import XCTest
+import PrintPartyKit
 @testable import PrintPartyGateway
 
 final class NIOLoopBoundSafetyTests: XCTestCase {

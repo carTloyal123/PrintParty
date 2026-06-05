@@ -8,6 +8,7 @@
 //  DELETE /v1/printers/:id      — unregister a printer (H-22)
 //
 
+import PrintPartyKit
 import Vapor
 
 struct PrinterRoutes: RouteCollection {
@@ -141,4 +142,4 @@ struct PrinterRoutes: RouteCollection {
     }
 }
 
-extension PrintJobState: Content {}
+extension PrintJobState: @retroactive Content {}

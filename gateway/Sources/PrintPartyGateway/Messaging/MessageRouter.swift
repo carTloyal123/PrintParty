@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import PrintPartyKit
 import Vapor
 
 public actor MessageRouter {

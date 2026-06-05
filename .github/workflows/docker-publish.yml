@@ -6,6 +6,7 @@ on:
     paths:
       - "gateway/**"
       - "relay/**"
+      - "PrintPartyKit/**"
       - "docker-compose.yml"
       - ".github/workflows/docker-publish.yml"
   workflow_dispatch:
@@ -53,7 +54,7 @@ jobs:
       - uses: docker/build-push-action@v6
         id: build
         with:
-          context: ./${{ matrix.service }}
+          context: ${{ matrix.service == 'gateway' && '.' || format('./{0}', matrix.service) }}
           platforms: ${{ matrix.platform }}
           push: true
           labels: ${{ steps.meta.outputs.labels }}
