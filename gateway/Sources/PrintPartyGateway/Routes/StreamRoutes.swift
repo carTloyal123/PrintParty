@@ -28,11 +28,13 @@ struct StreamRoutes: RouteCollection {
         req.logger.info("WebSocket stream connected (\(id))")
 
         // H-13: Enable periodic ping to detect dead connections.
-        let pingTask = Task {
+        let pingTask = Task { [eventLoop = ws.eventLoop] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled, !ws.isClosed else { break }
-                try? await ws.sendPing()
+                guard !Task.isCancelled else { break }
+                let isClosed = try? await eventLoop.submit { ws.isClosed }.get()
+                guard isClosed != true else { break }
+                eventLoop.execute { ws.sendPing() }
             }
         }
 
@@ -96,7 +98,7 @@ private func handleEnvelopeRequest(
                 let rotateEnvelope = MessageEnvelope.event(method: "key.rotate", payload: payloadData)
                 let rotateData = try JSONEncoder().encode(rotateEnvelope)
                 if let rotateJson = String(data: rotateData, encoding: .utf8) {
-                    try await ws.send(rotateJson)
+                    ws.eventLoop.execute { ws.send(rotateJson) }
                     logger.info("[Stream] Sent key.rotate to device \(deviceId) (LAN)")
                 }
             }
@@ -105,7 +107,7 @@ private func handleEnvelopeRequest(
         let response = await messageRouter.route(envelope: envelope, printerService: printerService)
         let responseData = try JSONEncoder().encode(response)
         if let responseJson = String(data: responseData, encoding: .utf8) {
-            try await ws.send(responseJson)
+            ws.eventLoop.execute { ws.send(responseJson) }
         }
     } catch {
         logger.warning("[Stream] Failed to decode envelope: \(error)")
