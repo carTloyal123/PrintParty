@@ -292,37 +292,16 @@ struct GatewayDetailView: View {
         fetchError = nil
         defer { isFetching = false }
 
-        // Try WebSocket first (if an adapter is connected for this gateway).
-        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-           adapter.connectionMode != .disconnected {
-            do {
-                let data = try await adapter.request("printers.list", payload: EmptyPayload())
-                remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
-                return
-            } catch {
-                // Fall through to HTTP.
-            }
-        }
-
-        // Fall back to HTTP — needed when no printers are added yet
-        // (no adapter exists) or when the adapter is still connecting.
-        guard let baseURL = URL(string: gateway.baseURL) else {
-            fetchError = "Invalid gateway URL."
+        guard let client = AdapterRegistry.shared.gatewayClient(for: gateway.gatewayId) else {
+            fetchError = "No connection to gateway."
             return
         }
-        let url = baseURL.appendingPathComponent("v1/printers")
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 10
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                fetchError = "Gateway returned an error."
-                return
-            }
+            let data = try await client.request("printers.list", payload: EmptyPayload())
             remotePrinters = try JSONDecoder().decode([RemotePrinter].self, from: data)
         } catch {
-            fetchError = "Could not reach gateway."
+            fetchError = "Could not fetch printers: \(error.localizedDescription)"
         }
     }
 
@@ -349,34 +328,13 @@ struct GatewayDetailView: View {
             let printerId: UUID
         }
 
-        var success = false
+        guard let client = AdapterRegistry.shared.gatewayClient(for: gateway.gatewayId) else { return }
 
-        // Try WebSocket first.
-        if let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-           adapter.connectionMode != .disconnected {
-            do {
-                let _ = try await adapter.request("printers.remove", payload: RemovePayload(printerId: printer.id))
-                success = true
-            } catch {
-                // Fall through to HTTP.
-            }
+        do {
+            let _ = try await client.request("printers.remove", payload: RemovePayload(printerId: printer.id))
+        } catch {
+            return
         }
-
-        // Fall back to HTTP.
-        if !success, let baseURL = URL(string: gateway.baseURL) {
-            let url = baseURL.appendingPathComponent("v1/printers/\(printer.id.uuidString)")
-            var req = URLRequest(url: url)
-            req.httpMethod = "DELETE"
-            req.timeoutInterval = 10
-            do {
-                let (_, response) = try await URLSession.shared.data(for: req)
-                if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                    success = true
-                }
-            } catch {}
-        }
-
-        guard success else { return }
 
         // Remove from remote list
         remotePrinters.removeAll { $0.id == printer.id }

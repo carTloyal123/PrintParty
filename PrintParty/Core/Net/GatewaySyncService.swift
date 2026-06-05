@@ -97,19 +97,18 @@ enum GatewaySyncService {
 
     // MARK: - Private
 
-    /// Fetch printers via the WebSocket `printers.list` request.
+    /// Fetch printers via the shared gateway WebSocket client.
     private static func fetchRemotePrinters(
         gateway: Gateway,
         baseURL: URL
     ) async -> [RemotePrinter]? {
-        guard let adapter = AdapterRegistry.shared.gatewayAdapter(for: gateway.gatewayId),
-              adapter.connectionMode != .disconnected else {
-            log.info("GatewaySync: no connected adapter for \(gateway.displayName) — skipping sync")
+        guard let client = AdapterRegistry.shared.gatewayClient(for: gateway.gatewayId) else {
+            log.info("GatewaySync: no gateway client for \(gateway.displayName) — skipping sync")
             return nil
         }
 
         do {
-            let data = try await adapter.request("printers.list", payload: EmptyPayload())
+            let data = try await client.request("printers.list", payload: EmptyPayload())
             let printers = try JSONDecoder().decode([RemotePrinter].self, from: data)
             log.info("GatewaySync: fetched \(printers.count) printers via WS for \(gateway.displayName)")
             return printers

@@ -165,23 +165,23 @@ struct PrintersListView: View {
 
     // MARK: Actions
 
-    /// Pre-populate the registry's gateway URL cache so the adapter factory
-    /// can resolve gatewayId → baseURL without a SwiftData fetch.
-    /// Also feeds the GatewayHealthMonitor with the current gateway list.
+    /// Register gateways with the AdapterRegistry (starts WebSocket connections)
+    /// and feed the GatewayHealthMonitor with the current gateway list.
     private func syncGatewayURLs() {
         var monitorGateways: [GatewayHealthMonitor.GatewayInfo] = []
         for gw in gateways {
             if let url = URL(string: gw.baseURL) {
-                registry.cacheGatewayURL(gatewayId: gw.gatewayId, baseURL: url)
+                let relayURL = gw.relayURL.flatMap { URL(string: $0) }
+                registry.registerGateway(
+                    gatewayId: gw.gatewayId,
+                    baseURL: url,
+                    relayURL: relayURL
+                )
                 monitorGateways.append(GatewayHealthMonitor.GatewayInfo(
                     gatewayId: gw.gatewayId,
                     baseURL: url,
-                    relayURL: gw.relayURL.flatMap { URL(string: $0) }
+                    relayURL: relayURL
                 ))
-            }
-            if let relayURLString = gw.relayURL,
-               let relayURL = URL(string: relayURLString) {
-                registry.cacheGatewayRelayURL(gatewayId: gw.gatewayId, relayURL: relayURL)
             }
         }
         GatewayHealthMonitor.shared.update(gateways: monitorGateways)

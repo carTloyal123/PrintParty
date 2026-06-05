@@ -46,6 +46,13 @@ final class AdapterRegistry {
     /// The LiveActivityCoordinator tracks by remotePrinterId but adapters are
     /// keyed by local Printer.id.
     private var remoteToLocalId: [UUID: UUID] = [:]
+
+    /// Shared WebSocket connections per gateway. Keyed by gatewayId.
+    /// Started when gateways are registered (via `registerGateway`), shared
+    /// across all GatewayAdapters for the same gateway, and available to
+    /// management views even when no printers are added yet.
+    private var gatewayClients: [String: GatewayStreamClient] = [:]
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -210,36 +217,75 @@ final class AdapterRegistry {
         return nil
     }
 
-    // MARK: - Factory
+    /// Get the shared WebSocket client for a gateway.
+    /// Available even when no printers are added locally.
+    func gatewayClient(for gatewayId: String) -> GatewayStreamClient? {
+        gatewayClients[gatewayId]
+    }
 
-    private func makeAdapter(for printer: Printer) -> PrinterAdapter? {
-        guard let gatewayId = printer.gatewayId,
-              let remotePrinterId = printer.remotePrinterId else { return nil }
-        guard let baseURL = gatewayBaseURL(gatewayId: gatewayId) else { return nil }
+    // MARK: - Per-gateway WebSocket lifecycle
 
-        // Look up E2EE keys from Keychain for relay mode.
+    /// Register a gateway and start its shared WebSocket connection.
+    /// Called from `syncGatewayURLs()` on app launch and when gateways change.
+    /// Idempotent — won't create a second client if one already exists.
+    func registerGateway(
+        gatewayId: String,
+        baseURL: URL,
+        relayURL: URL? = nil
+    ) {
+        // Cache URLs for the adapter factory.
+        cacheGatewayURL(gatewayId: gatewayId, baseURL: baseURL)
+        if let relayURL {
+            cacheGatewayRelayURL(gatewayId: gatewayId, relayURL: relayURL)
+        }
+
+        // Don't create a second client.
+        guard gatewayClients[gatewayId] == nil else { return }
+
+        // Load E2EE keys.
         let sharedKey = loadSymmetricKey(
             KeychainStore.gatewaySharedKeyAccount(gatewayId: gatewayId)
         )
         let groupKey = loadSymmetricKey(
             KeychainStore.gatewayGroupKeyAccount(gatewayId: gatewayId)
         )
-
-        // Device ID is the stable per-install identifier stored in UserDefaults.
         let deviceId = UserDefaults.standard.string(
             forKey: "com.clengineering.PrintParty.deviceId"
         )
+
+        let client = GatewayStreamClient(
+            baseURL: baseURL,
+            relayURL: relayURL,
+            gatewayId: gatewayId,
+            sharedKey: sharedKey,
+            groupKey: groupKey,
+            deviceId: deviceId
+        )
+        gatewayClients[gatewayId] = client
+        client.start()
+    }
+
+    /// Stop and remove a gateway's shared WebSocket connection.
+    func unregisterGateway(gatewayId: String) {
+        gatewayClients[gatewayId]?.stop()
+        gatewayClients.removeValue(forKey: gatewayId)
+    }
+
+    // MARK: - Factory
+
+    private func makeAdapter(for printer: Printer) -> PrinterAdapter? {
+        guard let gatewayId = printer.gatewayId,
+              let remotePrinterId = printer.remotePrinterId else { return nil }
+
+        // Get the shared stream client for this gateway.
+        guard let client = gatewayClients[gatewayId] else { return nil }
 
         return GatewayAdapter(
             printerId: remotePrinterId,
             printerDisplayName: printer.displayName,
             printerModelName: printer.modelName,
-            gatewayBaseURL: baseURL,
-            relayURL: gatewayRelayURL(gatewayId: gatewayId),
             gatewayId: gatewayId,
-            sharedKey: sharedKey,
-            groupKey: groupKey,
-            deviceId: deviceId
+            streamClient: client
         )
     }
 

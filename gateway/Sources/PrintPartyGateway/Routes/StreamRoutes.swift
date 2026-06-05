@@ -47,7 +47,7 @@ struct StreamRoutes: RouteCollection {
             logger.debug("[Stream] Registering WebSocket handlers (on NIO EL)")
 
             ws.onText { ws, text in
-                logger.debug("[Stream] Received text frame (\(text.prefix(80))...)")
+                logger.info("[Stream] Received text frame (\(text.count) chars, prefix: \(text.prefix(120)))")
                 Task {
                     await handleEnvelopeRequest(
                         text: text, ws: ws,
@@ -110,7 +110,7 @@ private func handleEnvelopeRequest(
 
     do {
         let envelope = try JSONDecoder().decode(MessageEnvelope.self, from: data)
-        logger.debug("[Stream] Routing envelope: method=\(envelope.method), id=\(envelope.id ?? "nil")")
+        logger.info("[Stream] Routing envelope: method=\(envelope.method), id=\(envelope.id ?? "nil")")
 
         // Check for pending key rotation for this device.
         if let deviceId = envelope.deviceId, let pairingService {
@@ -141,5 +141,6 @@ private func handleEnvelopeRequest(
         }
     } catch {
         logger.warning("[Stream] Failed to decode envelope: \(error)")
+        logger.warning("[Stream] Raw frame was (\(text.count) chars): \(text.prefix(500))")
     }
 }

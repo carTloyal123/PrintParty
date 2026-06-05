@@ -187,8 +187,14 @@ final class GatewayStreamClient {
     /// Send a request over the WebSocket and await the response.
     /// On LAN: sends a plaintext JSON envelope.
     /// On relay: encrypts with the device shared key.
-    /// Timeout: 10 seconds.
+    /// If the WebSocket is still connecting, waits up to 10 seconds for it.
+    /// Request timeout: 10 seconds after sending.
     func request(_ method: String, payload: any Encodable) async throws -> Data {
+        // Wait for connection if still connecting (e.g. freshly registered gateway).
+        if !isConnected && started {
+            try await waitForConnection(timeout: 10)
+        }
+
         guard isConnected, let ws = task else {
             throw GatewayStreamError.notConnected
         }
@@ -499,6 +505,18 @@ final class GatewayStreamClient {
     }
 
     // MARK: - Phase transitions
+
+    /// Wait for the WebSocket connection to be established.
+    /// Polls `isConnected` with short sleeps, up to the given timeout.
+    private func waitForConnection(timeout: TimeInterval) async throws {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while !isConnected && started && Date.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard isConnected else {
+            throw GatewayStreamError.notConnected
+        }
+    }
 
     /// Transition to `.connecting` only if currently disconnected.
     /// This prevents flashing the "connecting" banner when we're already

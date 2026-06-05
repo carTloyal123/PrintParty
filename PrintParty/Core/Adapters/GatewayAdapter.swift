@@ -9,6 +9,10 @@
 //  the printer on the user's LAN, and this adapter talks to the gateway
 //  from wherever the phone happens to be.
 //
+//  The underlying GatewayStreamClient is shared across all adapters for the
+//  same gateway (owned by AdapterRegistry). This adapter filters the shared
+//  stream to only yield states for its specific printer.
+//
 
 import Foundation
 import CryptoKit
@@ -18,54 +22,39 @@ final class GatewayAdapter: PrinterAdapter {
 
     let printerId: UUID
     let kind: String = "Gateway"
+    let gatewayId: String?
 
     /// Connection phase, forwarded from the GatewayStreamClient (single source of truth).
     var connectionPhase: ConnectionPhase {
-        streamClient?.connectionPhase ?? .disconnected()
+        streamClient.connectionPhase
     }
-
-    /// Exposed so LiveActivityCoordinator can forward push tokens.
-    let gatewayBaseURL: URL
-    private let relayURL: URL?
-    let gatewayId: String?
-    private let printerDisplayName: String
-    private let printerModelName: String
-    /// E2EE keys for relay mode.
-    private let sharedKey: SymmetricKey?
-    private let groupKey: SymmetricKey?
-    /// Device ID for this paired device.
-    private let deviceId: String?
-    private var streamClient: GatewayStreamClient?
-    private var pumpTask: Task<Void, Never>?
-    private var started = false
-    private var currentState: PrintJobState
-    private var continuations: [UUID: AsyncStream<PrintJobState>.Continuation] = [:]
 
     /// Current connection mode of the underlying stream client.
     var connectionMode: GatewayStreamClient.ConnectionMode {
-        streamClient?.connectionMode ?? .disconnected
+        streamClient.connectionMode
     }
+
+    private let streamClient: GatewayStreamClient
+    private let printerDisplayName: String
+    private let printerModelName: String
+    private var pumpTask: Task<Void, Never>?
+    private var phaseObservation: NSObjectProtocol?
+    private var started = false
+    private var currentState: PrintJobState
+    private var continuations: [UUID: AsyncStream<PrintJobState>.Continuation] = [:]
 
     init(
         printerId: UUID,
         printerDisplayName: String,
         printerModelName: String,
-        gatewayBaseURL: URL,
-        relayURL: URL? = nil,
-        gatewayId: String? = nil,
-        sharedKey: SymmetricKey? = nil,
-        groupKey: SymmetricKey? = nil,
-        deviceId: String? = nil
+        gatewayId: String?,
+        streamClient: GatewayStreamClient
     ) {
         self.printerId = printerId
         self.printerDisplayName = printerDisplayName
         self.printerModelName = printerModelName
-        self.gatewayBaseURL = gatewayBaseURL
-        self.relayURL = relayURL
         self.gatewayId = gatewayId
-        self.sharedKey = sharedKey
-        self.groupKey = groupKey
-        self.deviceId = deviceId
+        self.streamClient = streamClient
 
         var idle = PrintJobState.idle(
             printerId: printerId,
@@ -94,23 +83,13 @@ final class GatewayAdapter: PrinterAdapter {
         guard !started else { return }
         started = true
 
-        let client = GatewayStreamClient(
-            baseURL: gatewayBaseURL,
-            relayURL: relayURL,
-            gatewayId: gatewayId,
-            sharedKey: sharedKey,
-            groupKey: groupKey,
-            deviceId: deviceId
-        )
-        self.streamClient = client
-
-        // When the stream client's phase changes, re-emit our current state
-        // so the AdapterRegistry pump loop picks up the new phase.
-        // Also handle disconnects: emit an offline PrintJobState so the UI
-        // shows the printer as disconnected rather than frozen on stale data.
-        client.onPhaseChange = { [weak self] in
+        // Listen for phase changes on the shared stream client so we can
+        // re-emit state to our continuations (triggers AdapterRegistry pump).
+        let previousOnPhaseChange = streamClient.onPhaseChange
+        streamClient.onPhaseChange = { [weak self] in
+            previousOnPhaseChange?()
             guard let self else { return }
-            let phase = client.connectionPhase
+            let phase = self.streamClient.connectionPhase
             if case .disconnected(let reason) = phase {
                 var offline = self.currentState
                 offline.stage = .offline
@@ -123,15 +102,12 @@ final class GatewayAdapter: PrinterAdapter {
             }
         }
 
-        client.start()
-
+        // Pump states from the shared stream, filtering for our printer.
         let myPrinterId = printerId
-        let stream = client.stateUpdates()
+        let stream = streamClient.stateUpdates()
         pumpTask = Task { [weak self] in
             for await state in stream {
                 guard let self else { return }
-                // Only consume states for OUR printer; the gateway streams
-                // all printers on one WebSocket.
                 guard state.printerId == myPrinterId else { continue }
                 self.currentState = state
                 for (_, c) in self.continuations {
@@ -145,8 +121,7 @@ final class GatewayAdapter: PrinterAdapter {
         started = false
         pumpTask?.cancel()
         pumpTask = nil
-        streamClient?.stop()
-        streamClient = nil
+        // Don't stop the shared streamClient — it's owned by AdapterRegistry.
         for (_, c) in continuations { c.finish() }
         continuations.removeAll()
     }
@@ -154,11 +129,8 @@ final class GatewayAdapter: PrinterAdapter {
     // MARK: - Request/Response pass-through
 
     /// Send a request over the WebSocket and await the response.
-    /// Delegates to the underlying GatewayStreamClient.
+    /// Delegates to the shared GatewayStreamClient.
     func request(_ method: String, payload: any Encodable) async throws -> Data {
-        guard let client = streamClient else {
-            throw GatewayStreamError.notConnected
-        }
-        return try await client.request(method, payload: payload)
+        return try await streamClient.request(method, payload: payload)
     }
 }

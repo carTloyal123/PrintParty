@@ -199,26 +199,23 @@ struct AddGatewaySheet: View {
             )
             modelContext.insert(gateway)
 
-            // Cache the URL so adapters can find it immediately.
-            AdapterRegistry.shared.cacheGatewayURL(
+            // Start the shared WebSocket connection for this gateway immediately.
+            // This must happen before syncPrinters so the WS is available.
+            AdapterRegistry.shared.registerGateway(
                 gatewayId: result.gatewayId,
-                baseURL: url
+                baseURL: url,
+                relayURL: result.relayURL.flatMap { URL(string: $0) }
             )
-
-            // Cache the relay URL if the gateway provided one.
-            if let relayURLString = result.relayURL,
-               let relayURL = URL(string: relayURLString) {
-                AdapterRegistry.shared.cacheGatewayRelayURL(
-                    gatewayId: result.gatewayId,
-                    relayURL: relayURL
-                )
-            }
 
             // Auto-import any printers already registered on the gateway.
-            await GatewaySyncService.syncPrinters(
-                gateway: gateway,
-                modelContext: modelContext
-            )
+            // Don't block dismiss on this — it can complete in the background.
+            let gw = gateway
+            Task {
+                await GatewaySyncService.syncPrinters(
+                    gateway: gw,
+                    modelContext: modelContext
+                )
+            }
 
             dismiss()
         } catch let error as PairingError {
