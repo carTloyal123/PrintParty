@@ -5,8 +5,21 @@
 #   2. Place your .p8 key at relay/AuthKey.p8 (or set APNS_KEY_FILE)
 #   3. docker compose up
 #
-# The gateway pairing code is printed to the logs:
+# The gateway pairing code + a scannable QR are printed to the logs:
 #   docker compose logs gateway
+#
+# Running WITHOUT a relay (local-only): you don't need the relay for LAN
+# pairing — start just the gateway with an empty RELAY_URL:
+#   RELAY_URL= docker compose up gateway
+#
+# Pairing on the LAN:
+#   • mDNS auto-discovery (gateway pops up in the app) needs multicast to reach
+#     your LAN. That requires `network_mode: host` (Linux hosts only — see the
+#     commented block below). It does NOT work on Docker Desktop for Mac/Windows,
+#     where the container runs inside a VM.
+#   • QR / manual pairing works everywhere. For the QR (or manual URL) to be
+#     reachable from your phone behind Docker's bridge network, set ADVERTISE_HOST
+#     to the host machine's LAN IP so the QR encodes a reachable address.
 #
 
 services:
@@ -19,6 +32,17 @@ services:
     environment:
       - RELAY_URL=${RELAY_URL:-http://relay:8090}
       - GATEWAY_NAME=${GATEWAY_NAME:-PrintParty Gateway}
+      # The host machine's LAN IP (e.g. 192.168.1.42). Required behind Docker's
+      # bridge network so the pairing QR points at an address your phone can
+      # reach. Leave empty when using `network_mode: host` or running natively.
+      - ADVERTISE_HOST=${ADVERTISE_HOST:-}
+    # ── LAN mDNS auto-discovery (Linux hosts only) ──────────────────────────
+    # Uncomment to let the iOS app auto-discover this gateway via mDNS. Host
+    # networking is required for multicast to reach the LAN. Not supported on
+    # Docker Desktop (Mac/Windows) — use ADVERTISE_HOST + QR pairing there.
+    # When enabled, remove the `ports:` mapping above (host networking exposes
+    # the port directly).
+    #   network_mode: host
     volumes:
       - gateway-data:/data
     restart: unless-stopped

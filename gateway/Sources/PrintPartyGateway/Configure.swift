@@ -46,6 +46,19 @@ func configure(_ app: Application) async throws {
     // Read relay URL early so it can be passed to multiple services.
     let relayURL = Environment.get("RELAY_URL")
 
+    // mDNS advertisement is on by default; disable it (BONJOUR_ENABLED=false) for
+    // deployments where mDNS can't escape the bridge network (see docker-compose).
+    let mdnsEnabled = Environment.get("BONJOUR_ENABLED")?.lowercased() != "false"
+
+    // Optional operator-supplied LAN host (e.g. the Mac/host IP behind a Docker
+    // bridge). When set it's preferred for the pairing QR and the mDNS A record,
+    // since interface enumeration inside a container only sees the container IP.
+    let advertiseHost = Environment.get("ADVERTISE_HOST").flatMap { $0.isEmpty ? nil : $0 }
+
+    // Printing a scannable pairing QR in the terminal is on by default; disable
+    // it (QR_IN_TERMINAL=false) for log scrapers or terminals that mangle it.
+    let qrInTerminal = Environment.get("QR_IN_TERMINAL")?.lowercased() != "false"
+
     let pairingService = PairingService(
         gatewayId: gatewayId,
         gatewayName: gatewayName,
@@ -96,37 +109,63 @@ func configure(_ app: Application) async throws {
         Task { await tunnelClient.start() }
     }
 
+    // Start cross-platform mDNS advertisement so the iOS app can auto-discover
+    // us on the LAN (works on macOS and Linux — see MDNSResponder).
+    var mdnsResponder: MDNSResponder? = nil
+    if mdnsEnabled {
+        let responder = MDNSResponder(
+            gatewayId: gatewayId,
+            gatewayName: gatewayName,
+            version: "0.1.0",
+            port: UInt16(app.http.server.configuration.port),
+            advertiseHost: advertiseHost,
+            eventLoopGroup: app.eventLoopGroup,
+            logger: app.logger
+        )
+        mdnsResponder = responder
+        app.mdnsResponder = responder
+        Task { await responder.start() }
+    }
+
     // H-16: Register a lifecycle handler for graceful shutdown of MQTT
     // connections, WebSockets, and pending tasks.
-    app.lifecycle.use(GatewayLifecycleHandler(printerService: printerService))
+    app.lifecycle.use(GatewayLifecycleHandler(printerService: printerService, mdnsResponder: mdnsResponder))
 
     try app.register(collection: HealthRoutes(gatewayId: gatewayId, gatewayName: gatewayName, relayURL: relayURL))
     try app.register(collection: PairingRoutes())
     try app.register(collection: PrinterRoutes())
     try app.register(collection: StreamRoutes())
 
-    // Print a friendly banner with the current pairing code.
-    // The code auto-rotates every 5 minutes; each rotation is printed
-    // to the console at NOTICE level so the user can always see it.
-    let code = await pairingService.currentPairingCode()
-
-    // Background task: periodically touch the pairing code so it rotates
-    // and prints the new code to the console. Without this, rotation only
-    // happens when someone hits the pairing endpoint.
-    Task {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(300))
-            _ = await pairingService.currentPairingCode()
-        }
-    }
     let bindHost = app.http.server.configuration.hostname
     let bindPort = app.http.server.configuration.port
 
     // Build the list of URLs the iOS app can use to reach this gateway.
-    // See `resolvePairingHosts()` for the full discovery logic.
-    let pairingHosts = resolvePairingHosts()
+    // See `resolvePairingHosts()` for the full discovery logic. Store it so the
+    // /v1/pair/qr endpoint can build the QR payload with a real LAN host. An
+    // explicit ADVERTISE_HOST wins so the QR is phone-reachable behind Docker.
+    var pairingHosts = resolvePairingHosts()
+    if let advertiseHost { pairingHosts = [advertiseHost] + pairingHosts.filter { $0 != advertiseHost } }
+    app.storage[PairingHostsKey.self] = pairingHosts
+
+    // If we look containerized and no host was provided, the enumerated IP is the
+    // unreachable container address — warn the operator how to make pairing work.
+    if advertiseHost == nil, isLikelyContainerized(firstHost: pairingHosts.first) {
+        app.logger.warning("""
+        mDNS/QR may be unreachable from a phone: this looks like a container with no ADVERTISE_HOST set. \
+        Set ADVERTISE_HOST=<your LAN IP> (e.g. 192.168.1.42) so the pairing QR points at a reachable address, \
+        and use `network_mode: host` (Linux) for mDNS discovery.
+        """)
+    }
     let pairingURLs = pairingHosts.map { "http://\($0):\(bindPort)" }
     let pairingURLList = pairingURLs.map { "   \($0)" }.joined(separator: "\n")
+
+    // The best host to encode in a QR is the first LAN address (not localhost).
+    let qrHost = pairingHosts.first ?? "localhost"
+
+    // Print a friendly banner with the current pairing code.
+    // The code auto-rotates every 5 minutes; each rotation is printed
+    // to the console at NOTICE level so the user can always see it.
+    let code = await pairingService.currentPairingCode()
 
     app.logger.notice("""
 
@@ -136,6 +175,7 @@ func configure(_ app: Application) async throws {
        Listening on http://\(bindHost):\(bindPort)
        Gateway ID  : \(gatewayId)
        Gateway name: \(gatewayName)
+       mDNS        : \(mdnsEnabled ? "advertising as _printparty._tcp" : "disabled")
 
        PAIRING CODE: \(code)   (valid 5 minutes)
 
@@ -144,99 +184,56 @@ func configure(_ app: Application) async throws {
          Code : \(code)
     ╚═══════════════════════════════════════════════════════════════╝
     """)
-}
 
-// MARK: - Pairing host discovery
-
-/// Returns every host the gateway can plausibly be reached at, for use in
-/// the startup banner. We don't try to be clever about which of these are
-/// "really" useful — we just enumerate everything we can find and let the
-/// human pick the right one. Includes:
-///   - Every non-loopback IPv4 address from local network interfaces.
-///     In Docker bridge mode this returns the container's internal IP
-///     (e.g. 172.18.x.x), not the host's LAN IP — use mDNS or set
-///     `network_mode: host` in compose for that case.
-///   - `<hostname>.local` if the container hostname looks like a real name
-///     (most home networks resolve `.local` via mDNS/avahi). Set the
-///     container's `hostname:` in docker-compose to match the host's
-///     mDNS name (e.g. `hostname: ccc` for `ccc.local`).
-///   - `localhost` as a last-resort entry.
-private func resolvePairingHosts() -> [String] {
-    var hosts: [String] = []
-
-    hosts.append(contentsOf: enumerateLocalIPv4Addresses())
-
-    if let mdns = mDNSHostname(), !hosts.contains(mdns) {
-        hosts.append(mdns)
+    // Render a scannable QR for the current code so the user can pair with zero
+    // typing straight from the terminal.
+    if qrInTerminal {
+        let payload = QRTerminalRenderer.pairingURL(baseURL: "http://\(qrHost):\(bindPort)", code: code)
+        let qrArt = QRTerminalRenderer.renderToTerminal(payload: payload)
+        app.logger.notice("\n📱 Scan to pair:\n\n\(qrArt)\n")
     }
 
-    if !hosts.contains("localhost") {
-        hosts.append("localhost")
-    }
-    return hosts
-}
-
-/// Returns `<hostname>.local` if the system hostname looks like a real name.
-/// Returns nil for Docker-default container IDs (12 hex chars), already-qualified
-/// names, or empty hostnames. This lets users reach the gateway via mDNS/avahi.
-private func mDNSHostname() -> String? {
-    var buffer = [CChar](repeating: 0, count: 256)
-    guard gethostname(&buffer, buffer.count) == 0 else { return nil }
-    let host = String(cString: buffer)
-    guard !host.isEmpty else { return nil }
-    // Skip Docker default container IDs (12-char lowercase hex).
-    if host.count == 12, host.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) {
-        return nil
-    }
-    // If the hostname already contains a dot, treat as fully qualified.
-    if host.contains(".") { return host }
-    return host + ".local"
-}
-
-/// Enumerate non-loopback IPv4 addresses from local network interfaces.
-/// In Docker bridge mode this only returns the container's internal IP,
-/// which is why GATEWAY_HOSTS exists as an override.
-private func enumerateLocalIPv4Addresses() -> [String] {
-    var results: [String] = []
-    var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
-    guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return [] }
-    defer { freeifaddrs(ifaddrPtr) }
-
-    var cursor: UnsafeMutablePointer<ifaddrs>? = first
-    while let ptr = cursor {
-        defer { cursor = ptr.pointee.ifa_next }
-
-        guard let addr = ptr.pointee.ifa_addr else { continue }
-        guard Int32(addr.pointee.sa_family) == AF_INET else { continue }
-
-        var hostBuffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        let result = getnameinfo(
-            addr,
-            socklen_t(MemoryLayout<sockaddr_in>.size),
-            &hostBuffer,
-            socklen_t(hostBuffer.count),
-            nil,
-            0,
-            NI_NUMERICHOST
-        )
-        guard result == 0 else { continue }
-
-        let address = String(cString: hostBuffer)
-        // Skip loopback (handled separately) and link-local autoconfig.
-        if address == "127.0.0.1" || address.hasPrefix("169.254.") { continue }
-        if !results.contains(address) {
-            results.append(address)
+    // Background task: periodically touch the pairing code so it rotates and
+    // prints the new code (and a fresh QR) to the console. Without this,
+    // rotation only happens when someone hits the pairing endpoint.
+    Task {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(300))
+            let newCode = await pairingService.currentPairingCode()
+            if qrInTerminal {
+                let payload = QRTerminalRenderer.pairingURL(baseURL: "http://\(qrHost):\(bindPort)", code: newCode)
+                let qrArt = QRTerminalRenderer.renderToTerminal(payload: payload)
+                app.logger.notice("\n📱 New pairing code \(newCode) — scan to pair:\n\n\(qrArt)\n")
+            }
         }
     }
-    return results
 }
+
+// MARK: - Storage keys
 
 struct PairingServiceKey: StorageKey {
     typealias Value = PairingService
 }
 
+struct MDNSResponderKey: StorageKey {
+    typealias Value = MDNSResponder
+}
+
+struct PairingHostsKey: StorageKey {
+    typealias Value = [String]
+}
+
 extension Application {
     var pairing: PairingService { storage[PairingServiceKey.self]! }
+
+    var mdnsResponder: MDNSResponder? {
+        get { storage[MDNSResponderKey.self] }
+        set { storage[MDNSResponderKey.self] = newValue }
+    }
+
+    /// Hosts the gateway can be reached at, resolved at startup. Used by the
+    /// QR endpoint to build a pairing URL with a real LAN address.
+    var pairingHosts: [String] { storage[PairingHostsKey.self] ?? ["localhost"] }
 }
 
 extension Request {
@@ -247,9 +244,11 @@ extension Request {
 
 struct GatewayLifecycleHandler: LifecycleHandler {
     let printerService: PrinterService
+    let mdnsResponder: MDNSResponder?
 
     func shutdownAsync(_ app: Application) async {
         app.logger.info("Gateway lifecycle: shutting down...")
+        await mdnsResponder?.stop()
         await printerService.shutdown()
         app.logger.info("Gateway lifecycle: shutdown complete.")
     }

@@ -16,6 +16,7 @@ struct PairingRoutes: RouteCollection {
         let v1 = routes.grouped("v1")
         v1.post("pair", use: pair)
         v1.get("pair", "code", use: currentCode)
+        v1.get("pair", "qr", use: qrCode)
     }
 
     // MARK: - POST /v1/pair
@@ -77,6 +78,51 @@ struct PairingRoutes: RouteCollection {
         }
         let (code, expiresAt) = await req.pairing.currentPairingCodeWithExpiry()
         return CodeResponse(code: code, expiresAt: expiresAt)
+    }
+
+    // MARK: - GET /v1/pair/qr
+
+    struct QRResponse: Content {
+        let payload: String
+        let expiresAt: Date
+    }
+
+    /// Returns the current pairing QR code (terminal art by default, JSON with
+    /// `Accept: application/json`). The payload embeds the live pairing code, so
+    /// this is restricted to loopback unless QR_ALLOW_REMOTE=true.
+    @Sendable
+    func qrCode(req: Request) async throws -> Response {
+        let allowRemote = Environment.get("QR_ALLOW_REMOTE")?.lowercased() == "true"
+        if !allowRemote {
+            let ip = req.remoteAddress?.ipAddress ?? ""
+            guard ip == "127.0.0.1" || ip == "::1" else {
+                throw Abort(.forbidden, reason: "QR endpoint restricted to localhost")
+            }
+        }
+
+        let (code, expiresAt) = await req.pairing.currentPairingCodeWithExpiry()
+
+        // Use a real LAN host (not 127.0.0.1) so a scanning phone can reach us.
+        let host = req.application.pairingHosts.first ?? "localhost"
+        let port = req.application.http.server.configuration.port
+        let baseURL = "http://\(host):\(port)"
+        let payload = QRTerminalRenderer.pairingURL(baseURL: baseURL, code: code)
+
+        // Only return JSON when the client *explicitly* asks for it. A plain
+        // `Accept: */*` (curl/browser default) gets the scannable terminal QR,
+        // because Vapor's media-type equality treats `*/*` as matching JSON.
+        let acceptsJSON = (req.headers.first(name: .accept) ?? "").contains("application/json")
+        if acceptsJSON {
+            return try await QRResponse(payload: payload, expiresAt: expiresAt).encodeResponse(for: req)
+        }
+
+        let qrArt = QRTerminalRenderer.renderToTerminal(payload: payload)
+        let body = "\(qrArt)\n\nPayload: \(payload)\nExpires: \(expiresAt)\n"
+        return Response(
+            status: .ok,
+            headers: ["Content-Type": "text/plain; charset=utf-8"],
+            body: .init(string: body)
+        )
     }
 }
 
