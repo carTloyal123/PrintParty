@@ -20,7 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home printparty
+# Create the runtime user and the registry data dir, owned by it — so the
+# relay (which runs as `printparty`, not root) can persist the gateway registry
+# to a mounted /data volume.
+RUN useradd --create-home printparty \
+    && mkdir -p /data \
+    && chown printparty:printparty /data
 USER printparty
 
 COPY --from=build /build/.build/release/printparty-relay /usr/local/bin/printparty-relay
