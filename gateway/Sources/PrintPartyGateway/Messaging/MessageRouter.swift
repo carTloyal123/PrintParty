@@ -127,6 +127,10 @@ public actor MessageRouter {
             let modelName: String
             let stage: String
             let progressPercent: Double
+            // Gateway↔printer link health (for iOS introspection).
+            let connected: Bool
+            let lastSeenEpoch: Double?
+            let errorMessage: String?
         }
 
         let summaries = configs.map { config in
@@ -136,7 +140,10 @@ public actor MessageRouter {
                 displayName: config.displayName,
                 modelName: config.modelName,
                 stage: state?.stage.rawValue ?? "unknown",
-                progressPercent: state?.progressPercent ?? 0
+                progressPercent: state?.progressPercent ?? 0,
+                connected: state != nil && state?.stage != .offline,
+                lastSeenEpoch: state?.updatedAt.timeIntervalSince1970,
+                errorMessage: state?.errorMessage
             )
         }
         let encoder = JSONEncoder()
