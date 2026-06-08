@@ -19,6 +19,10 @@ struct PrintPartyApp: App {
     /// Initializes the gateway health monitor so it starts tracking immediately.
     private let gatewayHealthMonitor = GatewayHealthMonitor.shared
 
+    /// Activates WatchConnectivity on first access so the paired Apple Watch
+    /// starts receiving state snapshots as soon as the app launches.
+    private let watchSyncService = WatchSyncService.shared
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Printer.self,
@@ -38,6 +42,9 @@ struct PrintPartyApp: App {
     var body: some Scene {
         WindowGroup {
             PrintersListView()
+                .onOpenURL { url in
+                    DeepLinkRouter.shared.handle(url: url)
+                }
         }
         .modelContainer(sharedModelContainer)
     }

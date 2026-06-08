@@ -37,7 +37,7 @@ enum PairingError: Error, LocalizedError {
 
     private static func humanReason(_ raw: String) -> String {
         switch raw {
-        case "invalid_or_expired_code": return "Pairing code is incorrect or has expired."
+        case "invalid_or_expired_code": return "Pairing code is incorrect or has expired. If using a QR code, refresh it on the gateway and scan again."
         case "invalid_device_public_key": return "iOS sent an invalid public key (bug)."
         default: return raw
         }

@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import PrintPartyKit
 
 /// A read-only event source for one printer.
 ///

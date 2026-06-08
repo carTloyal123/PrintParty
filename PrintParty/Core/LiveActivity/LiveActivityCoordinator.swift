@@ -12,6 +12,7 @@
 import Foundation
 import ActivityKit
 import Observation
+import PrintPartyKit
 
 @MainActor
 @Observable

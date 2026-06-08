@@ -9,12 +9,15 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import PrintPartyKit
 
 struct PrintPartyLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PrintPartyActivityAttributes.self) { context in
-            // Lock Screen / Banner / standby view.
-            LockScreenLiveActivityView(
+            // Lock Screen / Banner / standby view on iOS, and the Smart Stack
+            // card on Apple Watch. `LiveActivityContentView` picks the layout
+            // based on the current `activityFamily` (.medium vs .small).
+            LiveActivityContentView(
                 attributes: context.attributes,
                 state: context.state
             )
@@ -48,5 +51,9 @@ struct PrintPartyLiveActivity: Widget {
             .widgetURL(URL(string: "printparty://printer/\(context.attributes.printerId.uuidString)"))
             .keylineTint(context.state.stage.tint)
         }
+        // Surface a custom, watch-tuned card in the Apple Watch Smart Stack.
+        // Without this, watchOS derives a card from the Dynamic Island views;
+        // the `.small` family lets us render a layout sized for the wrist.
+        .supplementalActivityFamilies([.small])
     }
 }

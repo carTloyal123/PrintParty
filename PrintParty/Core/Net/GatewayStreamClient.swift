@@ -24,6 +24,7 @@ import Network
 import UIKit
 import CryptoKit
 import os
+import PrintPartyKit
 
 @MainActor
 final class GatewayStreamClient {
@@ -649,10 +650,31 @@ final class GatewayStreamClient {
             for (_, c) in continuations {
                 c.yield(state)
             }
+        case "gateway.welcome":
+            handleWelcome(envelope)
         case "key.rotate":
             handleKeyRotation(envelope)
         default:
             Self.log.info("GatewayStream: unhandled event method '\(envelope.method, privacy: .public)'")
+        }
+    }
+
+    /// Handle the `gateway.welcome` event the gateway sends immediately on
+    /// connect. Receiving it already flips the connection indicator to
+    /// connected (it's the first message), but handle it explicitly to confirm
+    /// readiness and surface the gateway's printer count for diagnostics.
+    private func handleWelcome(_ envelope: MessageEnvelope) {
+        struct WelcomePayload: Decodable {
+            let gatewayId: String
+            let printerCount: Int
+        }
+        // Belt-and-suspenders: ensure the phase reflects a live connection the
+        // instant the welcome lands, even if the first-message hook changes.
+        if isConnected, connectionPhase == .connecting {
+            connectionPhase = connectionMode == .relay ? .connectedRelay : .connectedLAN
+        }
+        if let payload = envelope.decodePayload(WelcomePayload.self) {
+            Self.log.info("GatewayStream: gateway.welcome — \(payload.printerCount, privacy: .public) printer(s)")
         }
     }
 

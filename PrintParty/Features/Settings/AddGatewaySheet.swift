@@ -17,6 +17,7 @@ import SwiftUI
 import SwiftData
 import CryptoKit
 import UIKit
+import PrintPartyKit
 
 struct AddGatewaySheet: View {
 
@@ -28,6 +29,18 @@ struct AddGatewaySheet: View {
     @State private var isPairing: Bool = false
     @State private var lastError: String?
     @State private var pingResult: PingState = .idle
+
+    @State private var browser = GatewayBrowser()
+    @State private var showQRScanner = false
+    @State private var showCameraDeniedAlert = false
+    @State private var autoPairNotice: String?
+    @Query(sort: \Gateway.pairedAt) private var existingGateways: [Gateway]
+
+    /// gatewayId prefixes (first 8 chars) of already-paired gateways, matching
+    /// the `gid` advertised in the Bonjour TXT record.
+    private var pairedGatewayIds: Set<String> {
+        Set(existingGateways.map { String($0.gatewayId.prefix(8)) })
+    }
 
     private enum PingState: Equatable {
         case idle
@@ -45,6 +58,21 @@ struct AddGatewaySheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    DiscoveredGatewayList(
+                        gateways: browser.discoveredGateways,
+                        pairedGatewayIds: pairedGatewayIds,
+                        onSelect: { gw in
+                            if let url = gw.baseURL {
+                                baseURLString = url.absoluteString
+                            }
+                        },
+                        isBrowsing: browser.isBrowsing
+                    )
+                } header: {
+                    Text("Nearby Gateways")
+                }
+
                 Section {
                     TextField("Gateway URL", text: $baseURLString)
                         .textInputAutocapitalization(.never)
@@ -65,6 +93,18 @@ struct AddGatewaySheet: View {
                     Text("Connection")
                 } footer: {
                     Text("Use http://localhost:8080 when the gateway runs on your Mac and the app runs in the Simulator. On a real device, use the Mac's LAN IP (e.g. http://192.168.1.42:8080).")
+                        .font(.caption)
+                }
+
+                Section {
+                    Button {
+                        showQRScanner = true
+                    } label: {
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                    }
+                    .disabled(isPairing)
+                } footer: {
+                    Text("Scan the QR code displayed in your gateway's terminal to fill in both fields automatically.")
                         .font(.caption)
                 }
 
@@ -119,6 +159,81 @@ struct AddGatewaySheet: View {
             }
         }
         .interactiveDismissDisabled(isPairing)
+        .overlay(alignment: .bottom) {
+            if let autoPairNotice {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text(autoPairNotice)
+                        .font(.callout.weight(.medium))
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.thinMaterial, in: Capsule())
+                .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .animation(.easeInOut, value: autoPairNotice)
+        .sheet(isPresented: $showQRScanner) {
+            NavigationStack {
+                QRScannerView(
+                    onScanned: { url, code in
+                        applyScanned(url: url, code: code)
+                    },
+                    onPermissionDenied: {
+                        showQRScanner = false
+                        showCameraDeniedAlert = true
+                    }
+                )
+                .ignoresSafeArea()
+                .navigationTitle("Scan Gateway QR")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showQRScanner = false }
+                    }
+                }
+            }
+        }
+        .alert("Camera Access Needed", isPresented: $showCameraDeniedAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("PrintParty needs camera access to scan pairing QR codes. You can still pair by entering the URL and code manually.")
+        }
+        .onAppear {
+            browser.startBrowsing()
+            // Pre-fill from a `printparty://` deep link, if one is pending.
+            if let pending = DeepLinkRouter.shared.pendingPairing {
+                baseURLString = pending.url
+                code = pending.code
+                DeepLinkRouter.shared.pendingPairing = nil
+            }
+        }
+        .onDisappear { browser.stopBrowsing() }
+    }
+
+    /// Apply values captured from a QR scan / deep link to the form fields,
+    /// then auto-pair so the happy path is fully zero-typing. A short delay lets
+    /// the user see the fields populate before pairing kicks off.
+    private func applyScanned(url: String, code: String) {
+        baseURLString = url
+        self.code = code.uppercased().filter { !$0.isWhitespace }
+        guard canSubmit else { return }
+        autoPairNotice = "Pairing\u{2026}"
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if let host = URL(string: baseURLString)?.host {
+                autoPairNotice = "Pairing with \(host)\u{2026}"
+            }
+            await pair()
+            autoPairNotice = nil
+        }
     }
 
     // MARK: - Ping badge

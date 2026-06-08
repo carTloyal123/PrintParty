@@ -10,6 +10,14 @@
 		4C4AE5AF2FCD385700AAE55A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */; };
 		4C4AE5B12FCD385700AAE55A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */; };
 		4C4AE5BE2FCD385800AAE55A /* PrintPartyWidgetExtensionExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4CCF24A32FD601A800783C01 /* PrintPartyWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 4CCF24992FD601A700783C01 /* PrintPartyWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4CCF24AD2FD601EE00783C01 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */; };
+		4CCF24AE2FD601EE00783C01 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */; };
+		4CCF24BD2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4CCF24AC2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4CCF24C62FD602F900783C01 /* PrintPartyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4CCF24C52FD602F900783C01 /* PrintPartyKit */; };
+		4CCF24C82FD6030100783C01 /* PrintPartyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4CCF24C72FD6030100783C01 /* PrintPartyKit */; };
+		AA000001AAAA000100000001 /* PrintPartyKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA000001AAAA000100000002 /* PrintPartyKit */; };
+		AA000001AAAA000100000003 /* PrintPartyKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA000001AAAA000100000004 /* PrintPartyKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,6 +27,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = 4C4AE5AB2FCD385700AAE55A;
 			remoteInfo = PrintPartyWidgetExtensionExtension;
+		};
+		4CCF24A12FD601A800783C01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4C4AE5762FCD2F8B00AAE55A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4CCF24982FD601A700783C01;
+			remoteInfo = "PrintPartyWatch Watch App";
+		};
+		4CCF24BB2FD601EE00783C01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4C4AE5762FCD2F8B00AAE55A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4CCF24AB2FD601EE00783C01;
+			remoteInfo = PrintPartyWatchWidgetExtensionExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -34,6 +56,28 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4CCF24A72FD601A800783C01 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				4CCF24A32FD601A800783C01 /* PrintPartyWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24C22FD601EE00783C01 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4CCF24BD2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +85,9 @@
 		4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PrintPartyWidgetExtensionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C4AE5AE2FCD385700AAE55A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
 		4C4AE5B02FCD385700AAE55A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
+		4CCF24992FD601A700783C01 /* PrintPartyWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PrintPartyWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4CCF24AC2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PrintPartyWatchWidgetExtensionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		4CCF24C42FD602C500783C01 /* PrintPartyWatchWidgetExtensionExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrintPartyWatchWidgetExtensionExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -57,6 +104,13 @@
 				Info.plist,
 			);
 			target = 4C4AE57D2FCD2F8B00AAE55A /* PrintParty */;
+		};
+		4CCF24C12FD601EE00783C01 /* Exceptions for "PrintPartyWatchWidgetExtension" folder in "PrintPartyWatchWidgetExtensionExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4CCF24AB2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -82,6 +136,19 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		4CCF249A2FD601A700783C01 /* PrintPartyWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "PrintPartyWatch Watch App";
+			sourceTree = "<group>";
+		};
+		4CCF24AF2FD601EE00783C01 /* PrintPartyWatchWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4CCF24C12FD601EE00783C01 /* Exceptions for "PrintPartyWatchWidgetExtension" folder in "PrintPartyWatchWidgetExtensionExtension" target */,
+			);
+			path = PrintPartyWatchWidgetExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +156,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA000001AAAA000100000001 /* PrintPartyKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +166,25 @@
 			files = (
 				4C4AE5B12FCD385700AAE55A /* SwiftUI.framework in Frameworks */,
 				4C4AE5AF2FCD385700AAE55A /* WidgetKit.framework in Frameworks */,
+				AA000001AAAA000100000003 /* PrintPartyKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24962FD601A700783C01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4CCF24C62FD602F900783C01 /* PrintPartyKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24A92FD601EE00783C01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4CCF24AE2FD601EE00783C01 /* SwiftUI.framework in Frameworks */,
+				4CCF24C82FD6030100783C01 /* PrintPartyKit in Frameworks */,
+				4CCF24AD2FD601EE00783C01 /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,9 +194,12 @@
 		4C4AE5752FCD2F8B00AAE55A = {
 			isa = PBXGroup;
 			children = (
+				4CCF24C42FD602C500783C01 /* PrintPartyWatchWidgetExtensionExtension.entitlements */,
 				4C4AE5D02FCD500000AAE55A /* Shared */,
 				4C4AE5802FCD2F8B00AAE55A /* PrintParty */,
 				4C4AE5B22FCD385700AAE55A /* PrintPartyWidgetExtension */,
+				4CCF249A2FD601A700783C01 /* PrintPartyWatch Watch App */,
+				4CCF24AF2FD601EE00783C01 /* PrintPartyWatchWidgetExtension */,
 				4C4AE5AD2FCD385700AAE55A /* Frameworks */,
 				4C4AE57F2FCD2F8B00AAE55A /* Products */,
 			);
@@ -120,6 +210,8 @@
 			children = (
 				4C4AE57E2FCD2F8B00AAE55A /* PrintParty.app */,
 				4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */,
+				4CCF24992FD601A700783C01 /* PrintPartyWatch Watch App.app */,
+				4CCF24AC2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -144,11 +236,13 @@
 				4C4AE57B2FCD2F8B00AAE55A /* Frameworks */,
 				4C4AE57C2FCD2F8B00AAE55A /* Resources */,
 				4C4AE5BF2FCD385800AAE55A /* Embed Foundation Extensions */,
+				4CCF24A72FD601A800783C01 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				4C4AE5BD2FCD385800AAE55A /* PBXTargetDependency */,
+				4CCF24A22FD601A800783C01 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4C4AE5802FCD2F8B00AAE55A /* PrintParty */,
@@ -156,6 +250,7 @@
 			);
 			name = PrintParty;
 			packageProductDependencies = (
+				AA000001AAAA000100000002 /* PrintPartyKit */,
 			);
 			productName = PrintParty;
 			productReference = 4C4AE57E2FCD2F8B00AAE55A /* PrintParty.app */;
@@ -179,9 +274,58 @@
 			);
 			name = PrintPartyWidgetExtensionExtension;
 			packageProductDependencies = (
+				AA000001AAAA000100000004 /* PrintPartyKit */,
 			);
 			productName = PrintPartyWidgetExtensionExtension;
 			productReference = 4C4AE5AC2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		4CCF24982FD601A700783C01 /* PrintPartyWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4CCF24A42FD601A800783C01 /* Build configuration list for PBXNativeTarget "PrintPartyWatch Watch App" */;
+			buildPhases = (
+				4CCF24952FD601A700783C01 /* Sources */,
+				4CCF24962FD601A700783C01 /* Frameworks */,
+				4CCF24972FD601A700783C01 /* Resources */,
+				4CCF24C22FD601EE00783C01 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4CCF24BC2FD601EE00783C01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				4CCF249A2FD601A700783C01 /* PrintPartyWatch Watch App */,
+			);
+			name = "PrintPartyWatch Watch App";
+			packageProductDependencies = (
+				4CCF24C52FD602F900783C01 /* PrintPartyKit */,
+			);
+			productName = "PrintPartyWatch Watch App";
+			productReference = 4CCF24992FD601A700783C01 /* PrintPartyWatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4CCF24AB2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4CCF24BE2FD601EE00783C01 /* Build configuration list for PBXNativeTarget "PrintPartyWatchWidgetExtensionExtension" */;
+			buildPhases = (
+				4CCF24A82FD601EE00783C01 /* Sources */,
+				4CCF24A92FD601EE00783C01 /* Frameworks */,
+				4CCF24AA2FD601EE00783C01 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4CCF24AF2FD601EE00783C01 /* PrintPartyWatchWidgetExtension */,
+			);
+			name = PrintPartyWatchWidgetExtensionExtension;
+			packageProductDependencies = (
+				4CCF24C72FD6030100783C01 /* PrintPartyKit */,
+			);
+			productName = PrintPartyWatchWidgetExtensionExtension;
+			productReference = 4CCF24AC2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -191,7 +335,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2620;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					4C4AE57D2FCD2F8B00AAE55A = {
@@ -199,6 +343,12 @@
 					};
 					4C4AE5AB2FCD385700AAE55A = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					4CCF24982FD601A700783C01 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					4CCF24AB2FD601EE00783C01 = {
+						CreatedOnToolsVersion = 26.5;
 					};
 				};
 			};
@@ -211,6 +361,9 @@
 			);
 			mainGroup = 4C4AE5752FCD2F8B00AAE55A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA000001AAAA000100000005 /* XCLocalSwiftPackageReference "PrintPartyKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4C4AE57F2FCD2F8B00AAE55A /* Products */;
 			projectDirPath = "";
@@ -218,6 +371,8 @@
 			targets = (
 				4C4AE57D2FCD2F8B00AAE55A /* PrintParty */,
 				4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */,
+				4CCF24982FD601A700783C01 /* PrintPartyWatch Watch App */,
+				4CCF24AB2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -231,6 +386,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		4C4AE5AA2FCD385700AAE55A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24972FD601A700783C01 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24AA2FD601EE00783C01 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -254,6 +423,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4CCF24952FD601A700783C01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4CCF24A82FD601EE00783C01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -261,6 +444,16 @@
 			isa = PBXTargetDependency;
 			target = 4C4AE5AB2FCD385700AAE55A /* PrintPartyWidgetExtensionExtension */;
 			targetProxy = 4C4AE5BC2FCD385800AAE55A /* PBXContainerItemProxy */;
+		};
+		4CCF24A22FD601A800783C01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4CCF24982FD601A700783C01 /* PrintPartyWatch Watch App */;
+			targetProxy = 4CCF24A12FD601A800783C01 /* PBXContainerItemProxy */;
+		};
+		4CCF24BC2FD601EE00783C01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4CCF24AB2FD601EE00783C01 /* PrintPartyWatchWidgetExtensionExtension */;
+			targetProxy = 4CCF24BB2FD601EE00783C01 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -403,7 +596,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PrintParty/Info.plist;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty connects to your 3D printer on your local network to read print progress.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty uses your local network to discover gateways and stream print telemetry.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -453,7 +646,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PrintParty/Info.plist;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty connects to your 3D printer on your local network to read print progress.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintParty uses your local network to discover gateways and stream print telemetry.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -573,6 +766,144 @@
 			};
 			name = Release;
 		};
+		4CCF24A52FD601A800783C01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PrintPartyWatch Watch App/PrintPartyWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.clengineering.PrintParty;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		4CCF24A62FD601A800783C01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PrintPartyWatch Watch App/PrintPartyWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.clengineering.PrintParty;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		4CCF24BF2FD601EE00783C01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PrintPartyWatchWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintPartyWatchWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWatchWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.watchkitapp.PrintPartyWatchWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		4CCF24C02FD601EE00783C01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PrintPartyWatchWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z2Z9BCQBJN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PrintPartyWatchWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PrintPartyWatchWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clengineering.PrintParty.watchkitapp.PrintPartyWatchWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -603,7 +934,53 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		4CCF24A42FD601A800783C01 /* Build configuration list for PBXNativeTarget "PrintPartyWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4CCF24A52FD601A800783C01 /* Debug */,
+				4CCF24A62FD601A800783C01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4CCF24BE2FD601EE00783C01 /* Build configuration list for PBXNativeTarget "PrintPartyWatchWidgetExtensionExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4CCF24BF2FD601EE00783C01 /* Debug */,
+				4CCF24C02FD601EE00783C01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA000001AAAA000100000005 /* XCLocalSwiftPackageReference "PrintPartyKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PrintPartyKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4CCF24C52FD602F900783C01 /* PrintPartyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000001AAAA000100000005 /* XCLocalSwiftPackageReference "PrintPartyKit" */;
+			productName = PrintPartyKit;
+		};
+		4CCF24C72FD6030100783C01 /* PrintPartyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000001AAAA000100000005 /* XCLocalSwiftPackageReference "PrintPartyKit" */;
+			productName = PrintPartyKit;
+		};
+		AA000001AAAA000100000002 /* PrintPartyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PrintPartyKit;
+		};
+		AA000001AAAA000100000004 /* PrintPartyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PrintPartyKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4C4AE5762FCD2F8B00AAE55A /* Project object */;
 }

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import PrintPartyKit
 
 struct PrinterDetailView: View {
 
@@ -39,13 +40,15 @@ struct PrinterDetailView: View {
         ScrollView {
             VStack(spacing: 20) {
                 connectionBanner(phase: phase, state: state)
+                if printer.adapterKind == .gateway {
+                    gatewayLinkCard(state: state, phase: phase)
+                }
                 JobProgressCard(state: state)
                 temperatureCard(state: state)
                 if printer.adapterKind == .gateway {
                     gatewayCommandsCard(state: state)
                 }
                 liveActivityCard(state: state)
-                debugCard(state: state, phase: phase)
             }
             .padding()
         }
@@ -307,40 +310,45 @@ struct PrinterDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func debugCard(state: PrintJobState, phase: ConnectionPhase) -> some View {
-        return DisclosureGroup("Debug \u{2014} Raw State") {
-            VStack(alignment: .leading, spacing: 6) {
-                debugRow("printerId", state.printerId.uuidString)
-                debugRow("jobId", state.jobId?.uuidString ?? "\u{2014}")
-                debugRow("stage", state.stage.rawValue)
-                debugRow("progress", String(format: "%.2f%%", state.progressPercent))
-                debugRow("layer", "\(state.currentLayer ?? 0) / \(state.totalLayers ?? 0)")
-                debugRow("updated", state.updatedAt.formatted(date: .omitted, time: .standard))
-                if let code = state.errorCode {
-                    debugRow("error", code)
+    /// The gateway's connection to the physical printer (its MQTT link),
+    /// surfaced from the broadcast PrintJobState. This is distinct from the
+    /// connectionBanner above, which is THIS device's link to the gateway.
+    private func gatewayLinkCard(state: PrintJobState, phase: ConnectionPhase) -> some View {
+        let offline = state.stage == .offline
+        let age = Date.now.timeIntervalSince(state.updatedAt)
+        // If we're not currently connected to the gateway, the printer status
+        // below is the last known value — say so rather than imply it's live.
+        let live = (phase == .connectedLAN || phase == .connectedRelay)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Gateway Link")
+                .font(.headline)
+            HStack(spacing: 12) {
+                Image(systemName: offline ? "bolt.horizontal.circle.fill" : "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(offline ? .red : .green)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(offline ? "Gateway can't reach the printer" : "Gateway connected to printer")
+                        .font(.subheadline.weight(.medium))
+                    if offline, let err = state.errorMessage {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if !offline {
+                        Text(live
+                             ? "Streaming telemetry through the gateway."
+                             : "Last known status — reconnecting to gateway.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("\(offline ? "Last seen" : "Updated") \(freshnessText(age: age))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
-
-                Divider()
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(phase.tint)
-                        .frame(width: 8, height: 8)
-                    Text("Phase: \(phase.displayName)")
-                        .foregroundStyle(phase.tint)
-                }
-                .font(.caption.monospaced())
-
-                if case .disconnected(let reason) = phase, let reason {
-                    debugRow("reason", reason)
-                }
-
-                debugRow("data age", "\(Int(Date.now.timeIntervalSince(state.updatedAt)))s")
+                Spacer(minLength: 0)
             }
-            .font(.caption.monospaced())
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
@@ -446,15 +454,4 @@ struct PrinterDetailView: View {
         }
     }
 
-    private func debugRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 70, alignment: .leading)
-            Text(value)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-            Spacer()
-        }
-    }
 }

@@ -204,12 +204,8 @@ final class GatewayHealthMonitor {
         let registry = AdapterRegistry.shared
 
         for (printerId, phase) in registry.connectionPhases {
-            // We need to check if this printer belongs to this gateway.
-            // The adapter registry doesn't directly map printer → gateway,
-            // but we can check the state's printerId against known printers.
-            // A simpler heuristic: if any adapter is connected via LAN or relay,
-            // and the printer's gatewayId matches, the gateway is reachable.
-            guard let adapter = registry.adapter(for: printerId) as? GatewayAdapter else {
+            // Only consider gateway adapters for this gateway.
+            guard registry.adapter(for: printerId) is GatewayAdapter else {
                 continue
             }
             // GatewayAdapter stores the gatewayId through the GatewayStreamClient.

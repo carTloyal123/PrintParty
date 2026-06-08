@@ -15,6 +15,7 @@
 import Foundation
 import CryptoKit
 import Observation
+import PrintPartyKit
 
 @MainActor
 @Observable
@@ -96,6 +97,9 @@ final class AdapterRegistry {
                 // land in the lock-screen banner / Dynamic Island as soon as
                 // telemetry arrives — no 1Hz polling latency.
                 LiveActivityCoordinator.shared.notify(state: newState)
+
+                // Mirror the full state set to the paired Apple Watch.
+                WatchSyncService.shared.notify(states: self.states)
             }
         }
     }
@@ -128,6 +132,7 @@ final class AdapterRegistry {
             states[localId] = state
             stateSources[localId] = .push
             connectionPhases[localId] = .push
+            WatchSyncService.shared.notify(states: states)
         } else {
             print("[AdapterRegistry] ingestPushState: adapter is live (stage=\(currentState?.stage.rawValue ?? "nil")) — push ignored for \(localId)")
         }

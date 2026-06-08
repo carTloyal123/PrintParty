@@ -1,10 +1,11 @@
 //
-//  PrinterStage+UI.swift
-//  PrintParty
+//  StageStyle.swift
+//  PrintPartyWatch Watch App
 //
-//  SwiftUI extensions for the PrinterStage enum defined in PrintPartyKit.
-//  These provide display strings, SF Symbol names, and tint colors for
-//  rendering printer stage in the iOS app and widget.
+//  SwiftUI presentation for `PrinterStage`. Mirrors the iOS app's
+//  `PrinterStage+UI` extension (in Shared/), duplicated here because that file
+//  is not a member of the watch target and the mapping can't live in
+//  PrintPartyKit (the Linux gateway imports the package and has no SwiftUI).
 //
 
 import SwiftUI
@@ -12,7 +13,7 @@ import PrintPartyKit
 
 extension PrinterStage {
 
-    public var displayName: String {
+    var displayName: String {
         switch self {
         case .idle:       return "Idle"
         case .preparing:  return "Preparing"
@@ -26,7 +27,7 @@ extension PrinterStage {
         }
     }
 
-    public var symbolName: String {
+    var symbolName: String {
         switch self {
         case .idle:       return "moon.zzz"
         case .preparing:  return "flame"
@@ -40,7 +41,7 @@ extension PrinterStage {
         }
     }
 
-    public var tint: Color {
+    var tint: Color {
         switch self {
         case .idle:       return .secondary
         case .preparing:  return .orange

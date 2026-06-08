@@ -20,6 +20,7 @@
 
 import Foundation
 import CryptoKit
+import PrintPartyKit
 
 /// The encrypted envelope that may arrive as ContentState via APNs.
 /// When `v == 1` and `ciphertext` is non-nil, the widget must decrypt.

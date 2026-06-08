@@ -16,6 +16,7 @@
 
 import Foundation
 import CryptoKit
+import PrintPartyKit
 
 @MainActor
 final class GatewayAdapter: PrinterAdapter {

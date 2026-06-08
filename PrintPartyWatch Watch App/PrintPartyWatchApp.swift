@@ -2,16 +2,22 @@
 //  PrintPartyWatchApp.swift
 //  PrintPartyWatch Watch App
 //
-//  Created by Carson Loyal on 6/7/26.
-//
 
 import SwiftUI
 
 @main
 struct PrintPartyWatch_Watch_AppApp: App {
+
+    /// Activate WatchConnectivity on first access so snapshots from the iPhone
+    /// start flowing (and seed the UI from the cached snapshot) at launch.
+    @State private var sync = PhoneSyncService.shared
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            PrinterListView()
         }
+
+        // Custom long-look UI for forwarded print events.
+        WKNotificationScene(controller: PrintNotificationController.self, category: "PRINT_EVENT")
     }
 }

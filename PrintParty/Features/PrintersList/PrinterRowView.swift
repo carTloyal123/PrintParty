@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import PrintPartyKit
 
 struct PrinterRowView: View {
 

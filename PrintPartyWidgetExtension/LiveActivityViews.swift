@@ -16,6 +16,7 @@
 import ActivityKit
 import SwiftUI
 import WidgetKit
+import PrintPartyKit
 
 // MARK: - Lock Screen / Banner
 

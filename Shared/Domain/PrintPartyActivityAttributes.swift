@@ -13,6 +13,7 @@
 
 import Foundation
 import ActivityKit
+import PrintPartyKit
 
 public struct PrintPartyActivityAttributes: ActivityAttributes {
 

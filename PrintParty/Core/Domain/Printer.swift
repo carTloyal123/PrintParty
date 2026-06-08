@@ -9,6 +9,7 @@
 
 import Foundation
 import SwiftData
+import PrintPartyKit
 
 @Model
 final class Printer {

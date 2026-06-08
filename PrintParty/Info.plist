@@ -22,5 +22,27 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Bonjour service types the app may browse for / resolve. Required for
+	     NWBrowser to discover PrintParty gateways on the local network. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_printparty._tcp.</string>
+	</array>
+	<!-- Custom URL scheme so QR codes / deep links can open the app pre-filled
+	     to pair a gateway: printparty://pair?url=...&code=... -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.clengineering.PrintParty</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>printparty</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Camera access for scanning gateway pairing QR codes. -->
+	<key>NSCameraUsageDescription</key>
+	<string>PrintParty uses your camera to scan QR codes for gateway pairing.</string>
 </dict>
 </plist>

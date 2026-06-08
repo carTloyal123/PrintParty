@@ -36,6 +36,25 @@ struct GatewayDetailView: View {
         let modelName: String
         let stage: String
         let progressPercent: Double
+        // Gateway↔printer link health. Optional so we still decode against
+        // older gateways that don't send these fields.
+        let connected: Bool?
+        let lastSeenEpoch: Double?
+        let errorMessage: String?
+
+        /// Health of the gateway's connection to this printer.
+        enum LinkHealth { case online, offline, connecting }
+        var linkHealth: LinkHealth {
+            if let connected { return connected ? .online : .offline }
+            // Fallback for gateways that predate the health fields.
+            switch stage {
+            case "offline": return .offline
+            case "unknown": return .connecting
+            default:        return .online
+            }
+        }
+
+        var lastSeen: Date? { lastSeenEpoch.map { Date(timeIntervalSince1970: $0) } }
     }
 
     /// Printers from this gateway that are already tracked locally.
@@ -231,6 +250,7 @@ struct GatewayDetailView: View {
                             .foregroundStyle(.blue)
                     }
                 }
+                linkHealthLine(printer)
             }
 
             Spacer()
@@ -258,6 +278,49 @@ struct GatewayDetailView: View {
                 Label("Remove", systemImage: "trash")
             }
         }
+    }
+
+    /// The gateway↔printer link health line: a colored dot + status, plus the
+    /// disconnect reason and last-seen time. This is the gateway's view of the
+    /// printer, distinct from this device's connection to the gateway.
+    @ViewBuilder
+    private func linkHealthLine(_ printer: RemotePrinter) -> some View {
+        let (color, label): (Color, String) = {
+            switch printer.linkHealth {
+            case .online:     return (.green, "Gateway connected")
+            case .offline:    return (.red, "Gateway can't reach printer")
+            case .connecting: return (.orange, "Gateway connecting\u{2026}")
+            }
+        }()
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(color)
+                if let seen = printer.lastSeen, printer.linkHealth != .connecting {
+                    Text("\u{00B7} seen \(relativeTime(seen))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            if printer.linkHealth == .offline, let err = printer.errorMessage {
+                Text(err)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, 1)
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let age = Date.now.timeIntervalSince(date)
+        if age < 5 { return "just now" }
+        if age < 60 { return "\(Int(age))s ago" }
+        if age < 3600 { return "\(Int(age / 60))m ago" }
+        if age < 86400 { return "\(Int(age / 3600))h ago" }
+        return "\(Int(age / 86400))d ago"
     }
 
     @ViewBuilder

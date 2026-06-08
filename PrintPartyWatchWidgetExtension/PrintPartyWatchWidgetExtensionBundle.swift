@@ -11,7 +11,6 @@ import SwiftUI
 @main
 struct PrintPartyWatchWidgetExtensionBundle: WidgetBundle {
     var body: some Widget {
-        PrintPartyWatchWidgetExtension()
-        PrintPartyWatchWidgetExtensionControl()
+        PrinterComplication()
     }
 }
